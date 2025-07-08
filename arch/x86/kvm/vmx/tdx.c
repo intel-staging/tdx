@@ -3772,9 +3772,11 @@ static int __init __tdx_hardware_setup(void)
 		return -EINVAL;
 
 	if (enable_tdx_huge_page && (!gmem_in_place_conversion ||
-				     !tdx_huge_page_demote_uninterruptible(tdx_sysinfo) ||
 				     !tdx_supports_dynamic_pamt(tdx_sysinfo)))
 		enable_tdx_huge_page = false;
+
+	if (enable_tdx_huge_page && !tdx_huge_page_demote_uninterruptible(tdx_sysinfo))
+		pr_warn("TDX module does not support TDX_FEATURES0_ENHANCED_DEMOTE_INTERRUPTIBILITY. Force tdx_huge_page enabled\n");
 
 	return 0;
 }

@@ -1857,6 +1857,7 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, enum pg_level level, kvm_pfn
 			struct page *new_sept_pt, struct tdx_pamt_cache *pamt_cache,
 			u64 *ext_err1, u64 *ext_err2)
 {
+	bool restartable = !tdx_huge_page_demote_uninterruptible(&tdx_sysinfo);
 	atomic_t *dpamt_refcount = tdx_find_dpamt_refcount(pfn);
 	struct page *dpamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT];
 	u64 ret;
@@ -1864,8 +1865,7 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, enum pg_level level, kvm_pfn
 	*ext_err1 = 0;
 	*ext_err2 = 0;
 
-	if (WARN_ON_ONCE(!tdx_huge_page_demote_uninterruptible(&tdx_sysinfo) ||
-			 !tdx_supports_dynamic_pamt(&tdx_sysinfo) ||
+	if (WARN_ON_ONCE(!tdx_supports_dynamic_pamt(&tdx_sysinfo) ||
 			 level != PG_LEVEL_2M))
 		return TDX_SW_ERROR;
 
@@ -1887,8 +1887,11 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, enum pg_level level, kvm_pfn
 		goto out_free;
 	}
 
-	ret = __tdh_mem_page_demote(td, gpa, level, new_sept_pt, dpamt_pages,
-				    ext_err1, ext_err2);
+	do {
+		ret = __tdh_mem_page_demote(td, gpa, level, new_sept_pt, dpamt_pages,
+					    ext_err1, ext_err2);
+	} while (ret == TDX_INTERRUPTED_RESTARTABLE && restartable);
+
 	if (ret != TDX_SUCCESS) {
 		WARN_ON_ONCE((ret & TDX_SEAMCALL_STATUS_MASK) != TDX_OPERAND_BUSY);
 		goto out_free;
