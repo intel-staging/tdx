@@ -1054,7 +1054,7 @@ static __init int construct_tdmrs(struct list_head *tmb_list,
 #define TDX_SYS_CONFIG_DYNAMIC_PAMT	BIT(16)
 
 /* List all kernel-supported add-on features0 bits here */
-#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(0)
+#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(TDX_FEATURES0_QUOTE)
 
 static u64 get_tdx_usable_addon_features0(void)
 {
