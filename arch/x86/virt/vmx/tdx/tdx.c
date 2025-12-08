@@ -1063,7 +1063,7 @@ struct tdmr_info_pa_array {
 };
 
 /* List all kernel-supported add-on features0 bits here */
-#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(0)
+#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(TDX_FEATURES0_QUOTE)
 
 static u64 get_tdx_usable_addon_features0(void)
 {
