@@ -13,6 +13,11 @@
 #include "kvm_mm.h"
 #include "guest_memfd.h"
 
+/*
+ * Allow guest_memfd to allocate 2MB folios from buddy for private memory.
+ * Testing purpose only for guest private memory's huge page support.
+ */
+static bool gmem_huge_private_mem_from_buddy;
 static struct vfsmount *kvm_gmem_mnt;
 
 /*
@@ -154,10 +159,12 @@ err_put:
  *
  * Always allocates folios of gmem_inode's page_order with no falling back to
  * allocate folios of order lower than the gmem_inode's page_order.
+ *
+ * gi->page_order is 0 by default and is set to PMD order only when the gmem
+ * inode allows huge page allocation from buddy for private memory.
  */
 static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 {
-	/* TODO: Support huge pages. */
 	struct address_space *mapping = inode->i_mapping;
 	struct gmem_inode *gi = GMEM_I(inode);
 	int order = gi->page_order;
@@ -179,16 +186,6 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 	folio = __kvm_gmem_get_folio(mapping, aligned_index, order, policy);
 
 	mpol_cond_put(policy);
-
-	/*
-	 * External interfaces like kvm_gmem_get_pfn() support dealing
-	 * with hugepages to a degree, but internally, guest_memfd currently
-	 * assumes that all folios are order-0 and handling would need
-	 * to be updated for anything otherwise (e.g. page-clearing
-	 * operations).
-	 */
-	WARN_ON_ONCE(!IS_ERR(folio) && folio_order(folio));
-
 	return folio;
 }
 
@@ -283,6 +280,8 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	struct gmem_inode *gi = GMEM_I(inode);
 
 	/*
+	 * gi->page_order is 0 by default and is set to PMD order only when the
+	 * gmem inode allows huge page allocation from buddy for private memory.
 	 * Disallow misaligned requests to avoid splitting folios.
 	 */
 	if (!IS_ALIGNED(offset, PAGE_SIZE << gi->page_order) ||
@@ -923,6 +922,39 @@ bool __weak kvm_arch_supports_gmem_init_shared(struct kvm *kvm)
 	return true;
 }
 
+
+/*
+ * Enable a gmem inode to allocate 2MB folios from buddy for private memory.
+ * It currently does not support mmap() to avoid folio splitting/merging.
+ *
+ * It requires the gmem inode size to be 2MB-aligned, so by setting the gmem
+ * inode's page_order to PMD order, later kvm_gmem_get_folio() can always
+ * allocate folios of the gmem_inode's page_order with no fallback to 4KB folios.
+ *
+ * After private-to-shared conversions, 2MB folios from buddy in the gmem inode
+ * remain in filemap. No splitting occurs on the 2MB folios after they are
+ * partially unmapped from the private page table.
+ *
+ * Punch hole operations with non-2MB-aligned offset/len will be rejected to
+ * avoid folio splitting.
+ */
+static void kvm_gmem_inode_huge_page_from_buddy(struct inode *inode)
+{
+	struct gmem_inode *gi = GMEM_I(inode);
+
+	if (!gmem_huge_private_mem_from_buddy)
+		return;
+
+	if (kvm_gmem_supports_mmap(inode))
+		return;
+
+	if (!IS_ALIGNED(inode->i_size, PAGE_SIZE << PMD_ORDER))
+		return;
+
+	gi->page_order = PMD_ORDER;
+	mapping_set_large_folios(inode->i_mapping);
+}
+
 static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags)
 {
 	struct gmem_inode *gi = GMEM_I(inode);
@@ -966,6 +998,7 @@ static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags)
 	r = mas_store_gfp(&mas, xa_mk_value(attrs), GFP_KERNEL);
 	filemap_invalidate_unlock(inode->i_mapping);
 
+	kvm_gmem_inode_huge_page_from_buddy(inode);
 	return r;
 }
 
