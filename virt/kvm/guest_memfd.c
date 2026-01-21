@@ -280,7 +280,14 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	enum kvm_gfn_range_filter filter = kvm_gmem_get_all_gfns_filter(inode);
 	pgoff_t start = offset >> PAGE_SHIFT;
 	pgoff_t end = (offset + len) >> PAGE_SHIFT;
+	struct gmem_inode *gi = GMEM_I(inode);
 
+	/*
+	 * Disallow misaligned requests to avoid splitting folios.
+	 */
+	if (!IS_ALIGNED(offset, PAGE_SIZE << gi->page_order) ||
+	    !IS_ALIGNED(len, PAGE_SIZE << gi->page_order))
+		return -EOPNOTSUPP;
 	/*
 	 * Bindings must be stable across invalidation to ensure the start+end
 	 * are balanced.
