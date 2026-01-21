@@ -1466,7 +1466,7 @@ bool kvm_tdp_mmu_wrprot_slot(struct kvm *kvm,
 	return spte_set;
 }
 
-static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(void)
+static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(bool is_mirror_sp)
 {
 	struct kvm_mmu_page *sp;
 
@@ -1478,6 +1478,15 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(void)
 	if (!sp->spt) {
 		kmem_cache_free(mmu_page_header_cache, sp);
 		return NULL;
+	}
+
+	if (is_mirror_sp) {
+		sp->external_spt = (void *)__get_free_page(GFP_KERNEL_ACCOUNT);
+		if (!sp->external_spt) {
+			free_page((unsigned long)sp->spt);
+			kmem_cache_free(mmu_page_header_cache, sp);
+			return NULL;
+		}
 	}
 
 	return sp;
@@ -1527,6 +1536,7 @@ static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 					 gfn_t start, gfn_t end,
 					 int target_level, bool shared)
 {
+	const bool is_mirror_root = is_mirror_sp(root);
 	struct kvm_mmu_page *sp = NULL;
 	struct tdp_iter iter;
 
@@ -1559,7 +1569,7 @@ retry:
 			else
 				write_unlock(&kvm->mmu_lock);
 
-			sp = tdp_mmu_alloc_sp_for_split();
+			sp = tdp_mmu_alloc_sp_for_split(is_mirror_root);
 
 			if (shared)
 				read_lock(&kvm->mmu_lock);
