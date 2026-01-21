@@ -43,6 +43,9 @@ struct gmem_inode {
 	 * this maple tree.
 	 */
 	struct maple_tree attributes;
+
+	/* The granularity for gmem inode to allocate folios */
+	int page_order;
 };
 
 static __always_inline struct gmem_inode *GMEM_I(struct inode *inode)
@@ -118,14 +121,14 @@ static bool kvm_gmem_range_has_attributes(struct inode *inode,
 }
 
 static struct folio *__kvm_gmem_get_folio(struct address_space *mapping,
-					  pgoff_t index,
+					  pgoff_t index, int order,
 					  struct mempolicy *policy)
 {
 	const gfp_t gfp = mapping_gfp_mask(mapping);
 	struct folio *folio;
 	int err;
 
-	folio = filemap_alloc_folio(gfp, 0, policy);
+	folio = filemap_alloc_folio(gfp, order, policy);
 	if (!folio)
 		return ERR_PTR(-ENOMEM);
 
@@ -148,12 +151,18 @@ err_put:
  *
  * Ignore accessed, referenced, and dirty flags.  The memory is
  * unevictable and there is no storage to write back to.
+ *
+ * Always allocates folios of gmem_inode's page_order with no falling back to
+ * allocate folios of order lower than the gmem_inode's page_order.
  */
 static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 {
 	/* TODO: Support huge pages. */
 	struct address_space *mapping = inode->i_mapping;
+	struct gmem_inode *gi = GMEM_I(inode);
+	int order = gi->page_order;
 	struct mempolicy *policy;
+	pgoff_t aligned_index;
 	struct folio *folio;
 
 	/*
@@ -165,7 +174,9 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 		return folio;
 
 	policy = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, index);
-	folio = __kvm_gmem_get_folio(mapping, index, policy);
+
+	aligned_index = ALIGN_DOWN(index, 1 << order);
+	folio = __kvm_gmem_get_folio(mapping, aligned_index, order, policy);
 
 	mpol_cond_put(policy);
 
@@ -926,6 +937,7 @@ static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags)
 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
 
 	gi->flags = flags;
+	gi->page_order = 0;
 
 	mt_set_external_lock(&gi->attributes,
 			     &inode->i_mapping->invalidate_lock);
