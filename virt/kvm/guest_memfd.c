@@ -18,6 +18,8 @@
  * Testing purpose only for guest private memory's huge page support.
  */
 static bool gmem_huge_private_mem_from_buddy;
+module_param_named(gmem_2MB_private_mem_from_buddy_for_testing,
+		   gmem_huge_private_mem_from_buddy, bool, 0444);
 static struct vfsmount *kvm_gmem_mnt;
 
 /*
@@ -1525,6 +1527,10 @@ int kvm_gmem_init(struct module *module)
 	if (gmem_huge_private_mem_from_buddy && !gmem_in_place_conversion)
 		gmem_huge_private_mem_from_buddy = false;
 
+	if (gmem_huge_private_mem_from_buddy) {
+		add_taint(TAINT_USER, LOCKDEP_STILL_OK);
+		pr_warn("guest_memfd (2MB-aligned size, no mmap) allocates private memory in 2MB granularity, rejecting non-2MB-aligned punch holes. For testing only. Kernel tainted\n");
+	}
 	return 0;
 }
 
