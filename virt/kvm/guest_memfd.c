@@ -1235,9 +1235,31 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
 	}
 
 	*pfn = folio_file_pfn(folio, index);
-	if (max_order)
+
+	if (max_order) {
+		struct gmem_inode *gi = GMEM_I(file_inode(file));
+
 		*max_order = 0;
 
+		/*
+		 * When the guest_memfd inode allows huge page allocation from
+		 * buddy for private memory, it does not allow mmap() and thus
+		 * currently does not perform folio splitting/merging during
+		 * memory attribute conversion. Also since the huge page from
+		 * buddy is only enabled with per-gmem memory attributes, return
+		 * huge folio order only if all the aligned huge range is
+		 * private memory.
+		 */
+		if (gmem_huge_private_mem_from_buddy && gi->page_order) {
+			unsigned long npages = 1 << gi->page_order;
+			pgoff_t aligned_index = ALIGN_DOWN(index, npages);
+
+			if (kvm_gmem_range_has_attributes(file_inode(file),
+							  aligned_index, npages,
+							  KVM_MEMORY_ATTRIBUTE_PRIVATE))
+				*max_order = folio_order(folio);
+		}
+	}
 	return folio;
 }
 
@@ -1499,6 +1521,10 @@ int kvm_gmem_init(struct module *module)
 		kmem_cache_destroy(kvm_gmem_inode_cachep);
 		return ret;
 	}
+
+	if (gmem_huge_private_mem_from_buddy && !gmem_in_place_conversion)
+		gmem_huge_private_mem_from_buddy = false;
+
 	return 0;
 }
 
