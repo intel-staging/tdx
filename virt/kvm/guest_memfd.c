@@ -117,6 +117,29 @@ static bool kvm_gmem_range_has_attributes(struct inode *inode,
 	return true;
 }
 
+static struct folio *__kvm_gmem_get_folio(struct address_space *mapping,
+					  pgoff_t index,
+					  struct mempolicy *policy)
+{
+	const gfp_t gfp = mapping_gfp_mask(mapping);
+	struct folio *folio;
+	int err;
+
+	folio = filemap_alloc_folio(gfp, 0, policy);
+	if (!folio)
+		return ERR_PTR(-ENOMEM);
+
+	err = filemap_add_folio(mapping, folio, index, gfp);
+	if (err)
+		goto err_put;
+
+	return folio;
+
+err_put:
+	folio_put(folio);
+	return ERR_PTR(err);
+}
+
 /*
  * Returns a locked folio on success.  The caller is responsible for
  * setting the up-to-date flag before the memory is mapped into the guest.
@@ -129,6 +152,7 @@ static bool kvm_gmem_range_has_attributes(struct inode *inode,
 static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 {
 	/* TODO: Support huge pages. */
+	struct address_space *mapping = inode->i_mapping;
 	struct mempolicy *policy;
 	struct folio *folio;
 
@@ -141,9 +165,8 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 		return folio;
 
 	policy = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, index);
-	folio = __filemap_get_folio_mpol(inode->i_mapping, index,
-					 FGP_LOCK | FGP_CREAT,
-					 mapping_gfp_mask(inode->i_mapping), policy);
+	folio = __kvm_gmem_get_folio(mapping, index, policy);
+
 	mpol_cond_put(policy);
 
 	/*
