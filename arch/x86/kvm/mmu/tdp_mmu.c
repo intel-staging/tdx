@@ -1616,6 +1616,26 @@ retry:
 	return 0;
 }
 
+static int tdp_mmu_split_huge_pages(struct kvm *kvm, int as_id,
+				    enum kvm_tdp_mmu_root_types type,
+				    gfn_t start, gfn_t end,
+				    int target_level, bool shared)
+{
+	struct kvm_mmu_page *root;
+	int r;
+
+	kvm_lockdep_assert_mmu_lock_held(kvm, shared);
+
+	__for_each_tdp_mmu_root_yield_safe(kvm, root, as_id, type) {
+		r = tdp_mmu_split_huge_pages_root(kvm, root, start, end,
+						  target_level, shared);
+		if (r) {
+			kvm_tdp_mmu_put_root(kvm, root);
+			return r;
+		}
+	}
+	return 0;
+}
 
 /*
  * Try to split all huge pages mapped by the TDP MMU down to the target level.
@@ -1625,18 +1645,18 @@ void kvm_tdp_mmu_try_split_huge_pages(struct kvm *kvm,
 				      gfn_t start, gfn_t end,
 				      int target_level, bool shared)
 {
-	struct kvm_mmu_page *root;
-	int r = 0;
-
-	kvm_lockdep_assert_mmu_lock_held(kvm, shared);
-	for_each_valid_tdp_mmu_root_yield_safe(kvm, root, slot->as_id) {
-		r = tdp_mmu_split_huge_pages_root(kvm, root, start, end, target_level, shared);
-		if (r) {
-			kvm_tdp_mmu_put_root(kvm, root);
-			break;
-		}
-	}
+	tdp_mmu_split_huge_pages(kvm, slot->as_id, KVM_VALID_ROOTS, start, end,
+				 target_level, shared);
 }
+
+int kvm_tdp_mmu_mirrors_split_huge_pages(struct kvm *kvm, gfn_t start,
+					 gfn_t end, int target_level)
+{
+	/* The as_id for mirror roots can only be 0 */
+	return tdp_mmu_split_huge_pages(kvm, 0, KVM_MIRROR_ROOTS, start, end,
+					target_level, false);
+}
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_tdp_mmu_mirrors_split_huge_pages);
 
 static bool tdp_mmu_need_write_protect(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
