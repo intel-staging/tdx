@@ -1475,21 +1475,27 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(bool is_mirror_sp)
 		return NULL;
 
 	sp->spt = (void *)__get_free_page(GFP_KERNEL_ACCOUNT);
-	if (!sp->spt) {
-		kmem_cache_free(mmu_page_header_cache, sp);
-		return NULL;
-	}
+	if (!sp->spt)
+		goto err_spt;
 
 	if (is_mirror_sp) {
 		sp->external_spt = (void *)__get_free_page(GFP_KERNEL_ACCOUNT);
-		if (!sp->external_spt) {
-			free_page((unsigned long)sp->spt);
-			kmem_cache_free(mmu_page_header_cache, sp);
-			return NULL;
-		}
+		if (!sp->external_spt)
+			goto err_external_spt;
+
+		if (kvm_x86_call(topup_external_cache)(kvm_get_running_vcpu(), 1))
+			goto err_external_split;
 	}
 
 	return sp;
+
+err_external_split:
+	free_page((unsigned long)sp->external_spt);
+err_external_spt:
+	free_page((unsigned long)sp->spt);
+err_spt:
+	kmem_cache_free(mmu_page_header_cache, sp);
+	return NULL;
 }
 
 /* Note, the caller is responsible for initializing @sp. */

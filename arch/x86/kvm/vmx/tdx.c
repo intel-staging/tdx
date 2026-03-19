@@ -1630,6 +1630,9 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
 
 static int tdx_topup_external_pamt_cache(struct kvm_vcpu *vcpu, int min_nr_spts)
 {
+	if (WARN_ON_ONCE(!vcpu))
+		return -EIO;
+
 	/*
 	 * Minus one page to exclude the root SPT, but plus one page for a
 	 * possible 4KB private mapping.
