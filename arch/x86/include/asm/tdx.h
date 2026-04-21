@@ -125,7 +125,7 @@ static inline bool tdx_supports_runtime_update(const struct tdx_sys_info *sysinf
 
 static inline bool tdx_supports_tdisp(const struct tdx_sys_info *sysinfo)
 {
-	return false; /* To be enabled when kernel is ready */
+	return sysinfo->features.tdx_features0 & TDX_FEATURES0_TDXCONNECT;
 }
 
 bool tdx_supports_dynamic_pamt(const struct tdx_sys_info *sysinfo);
