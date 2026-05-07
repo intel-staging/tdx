@@ -53,6 +53,7 @@
 #define TDH_EXT_INIT			60
 #define TDH_EXT_MEM_ADD			61
 #define TDH_SYS_DISABLE			69
+#define TDH_QUOTE_GET			98
 #define TDH_QUOTE_INIT			100
 
 /* TDX page types */
