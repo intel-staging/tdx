@@ -1,0 +1,124 @@
+From bf3b60318a9d2cc670e0678e58137cb9a6f4603e Mon Sep 17 00:00:00 2001
+From: Xu Yilun <yilun.xu@linux.intel.com>
+Date: Thu, 18 Jun 2026 15:50:24 +0800
+Subject: [PATCH v2 00/17] Enable TDX module extensions
+
+Hi,
+
+This is the first respin of the TDX module extensions series. Thank you
+all for the design discussion and architectural review. Hope the design
+could be settled and some more RBs got in this version.
+
+Dave please feel free to ignore. Kiryl, Rick and TDX developers, please
+help take a look.
+
+== Changes ==
+
+A major change is that the add-on feature re-configuration and
+extensions re-initialization operations during runtime update have been
+dropped. IOW, the update flow is left untouched. This stems from the
+architectural discussion that the basic update flow should start with a
+simple functional requirement - just restore everything (for example,
+the add-on features re-enabling, TDH.EXT.INIT) that was configured
+during boot, no extra input from the host is needed. Do improvement
+later if any new requirement arise.
+
+The extensions consume tens of megabytes memory that will never be
+returned to the host. How to consume this amount of memory forever is an
+open question though v1 uses alloc_contig_pages() for memory
+de-fragmentation. Kiryl implied fragmentation is an important concern.
+He answered that de-fragmentation is to prevent 2M pageblocks from being
+partially occupied. alloc_contig_pages() can be more than needed but
+should be good enough when we do it once during the boot time. In
+patch 4, keep the alloc_contig_pages() but add a code comment for
+clarification.
+
+Dave asked why pass the addon_features0 around as a function parameter,
+it can always be return from the global, static
+get_tdx_addon_features0() helper. Yilun admitted this is redundant. In
+patch 2, change to call the helper a second time where the value is
+needed.
+
+Rick pointed out that in patch 1, the changelog said we introduced a
+kernel data type for TDMR info PA array argument but the code is still
+setting TDX ABI data type (u64) for PAs. He suggested justifying that
+this is to avoid duplicating allocations and copies in SEAMCALL
+wrappers. Yilun noted this is a general in-memory ABI pattern which
+exists in several places in TDX. Add the statement of in-memory ABI
+handling in the changelog.
+
+Other changes:
+  - Patch 2: Drop the changelog section explaining why add-on feature
+    enabling is needed in this series, as it is a generally understood
+    pattern (Rick)
+
+  - Patch 2: Add a note in the changelog that Dynamic PAMT is not
+    enabled via the new bitmap argument of TDH.SYS.CONFIG (Rick)
+
+  - Patch 4: Add code comments for hpa_list container page allocation
+    (Kiryl)
+
+  - Patch 4: s/PFN array/HPA array in changelog (Kiryl)
+
+  - Patch 4: State the alternative memory adding solution and why we
+    don't use it in changelog (Rick)
+
+v1: https://lore.kernel.org/all/20260821032920.256225-1-yilun.xu@linux.intel.com/
+
+Quoting v2: https://lore.kernel.org/lkml/20260618081355.3253581-1-yilun.xu@linux.intel.com/
+
+Quoting v1: https://lore.kernel.org/all/20260522034128.3144354-1-yilun.xu@linux.intel.com/
+
+== Overview ==
+
+To date, SEAMCALL execution must either complete quickly to avoid
+stalling the host, or yield quickly at pre-defined interrupt
+checkpoints. This is acceptable for the existing SEAMCALL leafs,
+which perform simple, bounded operations.
+
+However, some new features such as attestation and TD migration require
+higher level security protocols inside the TDX module, which cannot fit
+within that constraint. TDX solves this by making those operations
+inherently preemptible and resumable like OS tasks. TDX provides a
+separate SEAMCALL execution environment - the TDX module extensions -
+for those operations.
+
+This capability allows for higher-level SEAMCALL ABI design - like
+"create a DICE-based attestation quote". Several new features, such as
+DICE-based attestation, TDISP and TD migration, use SEAMCALL leafs
+backed by the TDX module extensions.
+
+The TDX module extensions need memory for their execution environment
+to serve these SEAMCALL leafs, so they need extra setup steps during TDX
+module initialization. The bulk of this series implements these setup
+steps.
+
+At runtime, the host invokes these SEAMCALL leafs just as normal ones -
+if interrupted, simply re-invoke the leaf to resume.
+
+For more information on TDX module extensions, please refer to [1].
+
+[1] https://lore.kernel.org/lkml/20260618081355.3253581-1-yilun.xu@linux.intel.com/
+
+== Branch stack ==
+
+This is based on v7.3-rc1. You can find the full branch stack at [2].
+The DICE part is in the full branch as an example for extensions. But it
+does not include the other DICE feedbacks.
+
+The full branch contains:
+
+  Dependency:  Patch 1:   SEAMCALL version patch [3] which is WIP on
+			  community review.
+  This series: Patch 2~7: This series, including this cover-letter.
+  Use case:    Patch 8~N: The old DICE part as an example.
+
+[2] https://github.com/intel-staging/tdx/tree/tdx-module-ext
+[3] https://lore.kernel.org/all/20260910104347.625378-1-yilun.xu@linux.intel.com/
+
+
+base-commit: 2b9ad7a6154e0938b9458691536296dd0224942d
+-- 
+2.25.1
+
+
