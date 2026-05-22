@@ -1874,10 +1874,73 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
 }
 
 /*
+ * Split a huge mapping into smaller mappings at a lower level.  Currently only
+ * supports splitting 2MB mappings (KVM doesn't yet support 1GB mappings for TDX
+ * guests).
+ *
+ * Invoke "BLOCK + TRACK + kick off vCPUs (inside tdx_track())" since the TDX
+ * module does not yet support the NON-BLOCKING-RESIZE feature for DEMOTE.
+ *
+ * No UNBLOCK is needed after a successful DEMOTE.
+ *
+ * Under write mmu_lock, kick off all vCPUs and disallow vCPUs from entering to
+ * ensure DEMOTE will succeed on the second invocation if the first invocation
+ * returns BUSY.
+ */
+static int tdx_sept_split_leaf_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
+				    u64 new_spte, enum pg_level level)
+{
+	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	gpa_t gpa = gfn_to_gpa(gfn);
+	u64 err, entry, level_state;
+	struct page *sept_pt;
+	int r;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	if (KVM_BUG_ON(!is_last_spte(old_spte, level) || is_last_spte(new_spte, level), kvm))
+		return -EIO;
+
+	sept_pt = tdx_spte_to_sept_pt(kvm, gfn, new_spte, level);
+	if (!sept_pt)
+		return -EIO;
+
+	if (KVM_BUG_ON(!vcpu || vcpu->kvm != kvm, kvm))
+		return -EIO;
+
+	r = tdx_pamt_get(page_to_pfn(sept_pt), PG_LEVEL_4K, &to_tdx(vcpu)->pamt_cache);
+	if (KVM_BUG_ON(r, kvm))
+		return r;
+
+	err = tdh_do_no_vcpus(tdh_mem_range_block, kvm, &kvm_tdx->td, gpa,
+			      level, &entry, &level_state);
+	if (TDX_BUG_ON_2(err, TDH_MEM_RANGE_BLOCK, entry, level_state, kvm)) {
+		r = -EIO;
+		goto err;
+	}
+
+	tdx_track(kvm);
+	err = tdh_do_no_vcpus(tdh_mem_page_demote, kvm, &kvm_tdx->td, gpa,
+			      level, spte_to_pfn(old_spte), sept_pt,
+			      &to_tdx(vcpu)->pamt_cache, &entry, &level_state);
+	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_DEMOTE, entry, level_state, kvm)) {
+		r = -EIO;
+		goto err;
+	}
+
+	return 0;
+err:
+	tdx_pamt_put(page_to_pfn(sept_pt), PG_LEVEL_4K);
+	return r;
+}
+
+/*
  * Handle changes for
  * (1) leaf SPTEs from non-present to present
  * (2) non-leaf SPTEs from non-present to present
  * (3) leaf SPTEs from present to non-present
+ * (4) present leaf SPTEs to present non-leaf SPTEs (splitting)
  *
  * - (1) and (2) must be under shared mmu_lock. If (1) and (2) are under
  *   exclusive mmu_lock (currently impossible), contention errors may lead to
@@ -1888,12 +1951,16 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
  *   (currently impossible), warnings will be generated due to
  *   lockdep_assert_held_write() or TDX_BUG_ON() caused by concurrent BLOCK,
  *   TRACK, REMOVE.
- * - Promotion/demotion is not yet supported.
+ * - (4) must be under write mmu_lock currently.
+ * - Promotion is not yet supported.
  */
 static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 				     u64 new_spte, enum pg_level level)
 {
 	lockdep_assert_held(&kvm->mmu_lock);
+
+	if (is_shadow_present_pte(old_spte) && is_shadow_present_pte(new_spte))
+		return tdx_sept_split_leaf_spte(kvm, gfn, old_spte, new_spte, level);
 
 	if (is_shadow_present_pte(old_spte))
 		return tdx_sept_remove_leaf_spte(kvm, gfn, level, old_spte);
