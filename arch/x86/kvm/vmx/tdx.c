@@ -1865,7 +1865,7 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
 	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_REMOVE, entry, level_state, kvm))
 		return -EIO;
 
-	tdx_quirk_reset_paddr(PFN_PHYS(pfn), PAGE_SIZE);
+	tdx_quirk_reset_paddr(PFN_PHYS(pfn), KVM_HPAGE_SIZE(level));
 	tdx_pamt_put(pfn, level);
 	return 0;
 }
