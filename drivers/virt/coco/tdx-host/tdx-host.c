@@ -802,6 +802,7 @@ static bool supports_runtime_update(void)
 	if (!tdx_supports_runtime_update(sysinfo))
 		return false;
 
+#if 0
 	/*
 	 * This bug makes P-SEAMLDR calls clobber the current VMCS
 	 * which breaks KVM. Avoid P-SEAMLDR calls by hiding all
@@ -809,6 +810,7 @@ static bool supports_runtime_update(void)
 	 */
 	if (boot_cpu_has_bug(X86_BUG_SEAMRET_INVD_VMCS))
 		return false;
+#endif
 
 	return true;
 }
