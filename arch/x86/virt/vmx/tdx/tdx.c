@@ -1353,7 +1353,7 @@ out_free_hpa_list:
 	return ret;
 }
 
-static __init int tdx_ext_init(void)
+static int tdx_ext_init(void)
 {
 	struct tdx_module_args args = {};
 	u64 ret;
@@ -1380,6 +1380,19 @@ static __init int init_tdx_module_extensions(void)
 	ret = tdx_ext_mem_setup();
 	if (ret)
 		return ret;
+
+	return tdx_ext_init();
+}
+
+/*
+ * Don't update the memory requirement metadata or try memory allocation in
+ * stop_machine(). If an incompatible update requires more memory, let the
+ * extensions re-initialization fail.
+ */
+static int reinit_tdx_module_extensions(void)
+{
+	if (!(tdx_sysinfo.features.tdx_features0 & TDX_FEATURES0_EXT))
+		return 0;
 
 	return tdx_ext_init();
 }
@@ -1564,6 +1577,10 @@ int tdx_module_run_update(void)
 	int ret;
 
 	ret = seamcall_prerr(TDH_SYS_UPDATE, &args);
+	if (ret)
+		return ret;
+
+	ret = reinit_tdx_module_extensions();
 	if (ret)
 		return ret;
 
