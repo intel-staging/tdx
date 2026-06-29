@@ -145,6 +145,20 @@ static __init int get_tdx_sys_info_ext(struct tdx_sys_info_ext *sysinfo_ext)
 	return 0;
 }
 
+static __init int get_tdx_sys_info_connect(struct tdx_sys_info_connect *sysinfo_connect)
+{
+	int ret;
+	u64 val;
+
+	ret = read_sys_metadata_field(0x3000000100000003, &val);
+	if (ret)
+		return ret;
+
+	sysinfo_connect->iommu_mt_page_count = val;
+
+	return 0;
+}
+
 static __init int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 {
 	int ret = 0;
@@ -169,6 +183,9 @@ static __init int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 	 */
 	if (!ret && tdx_supports_dynamic_pamt(sysinfo))
 		ret = get_tdx_sys_info_tdmr_dpamt(&sysinfo->tdmr);
+
+	if (!ret && (sysinfo->features.tdx_features0 & TDX_FEATURES0_TDXCONNECT))
+		ret = get_tdx_sys_info_connect(&sysinfo->tdx_connect);
 
 	return ret;
 }
