@@ -1630,16 +1630,34 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
 
 static int tdx_topup_external_pamt_cache(struct kvm_vcpu *vcpu, int min_nr_spts)
 {
+	int dpamt_pairs;
+
 	if (WARN_ON_ONCE(!vcpu))
 		return -EIO;
 
-	/*
-	 * Minus one page to exclude the root SPT, but plus one page for a
-	 * possible 4KB private mapping.
-	 */
-	min_nr_spts += -1 + 1;
+	/* Exclude the root SPT, as its DPAMT page pair is already installed */
+	if (min_nr_spts == vcpu->kvm->arch.mirror_root_level)
+		min_nr_spts -= 1;
 
-	return tdx_topup_pamt_cache(&to_tdx(vcpu)->pamt_cache, min_nr_spts);
+	/*
+	 * Each S-EPT page table page + 4KB guest private page needs a pair of
+	 * DPAMT pages.
+	 */
+	dpamt_pairs = min_nr_spts + 1;
+
+	/*
+	 * After each topup, KVM may invoke DEMOTE at most twice. The first
+	 * DEMOTE invocation draws two pairs of pages from the cache: one for
+	 * the S-EPT page table page and one for the guest private memory.
+	 * Since these pages are not returned to the cache, the second DEMOTE
+	 * invocation still needs to consume one additional pair for the guest
+	 * private memory (the pair for the S-EPT page table page is reused for
+	 * the 2nd invocation). Increase the topup count to account for this
+	 * worst-case scenario.
+	 */
+	dpamt_pairs += 1;
+
+	return tdx_topup_pamt_cache(&to_tdx(vcpu)->pamt_cache, dpamt_pairs);
 }
 
 static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn, enum pg_level level,
