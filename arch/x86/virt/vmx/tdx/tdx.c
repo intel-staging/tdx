@@ -1265,19 +1265,17 @@ static_assert(sizeof(struct tdx_hpa_list) == PAGE_SIZE);
 #define HPA_LIST_INFO_PFN		GENMASK_U64(51, 12)
 #define HPA_LIST_INFO_LAST_ENTRY	GENMASK_U64(63, 55)
 
-static __init u64 to_hpa_list_info(struct tdx_hpa_list *hpa_list,
-				   unsigned int nr_pages)
+static __init u64 to_hpa_list_info(struct tdx_hpa_list_info *info)
 {
 	return FIELD_PREP(HPA_LIST_INFO_FIRST_ENTRY, 0) |
-	       FIELD_PREP(HPA_LIST_INFO_PFN, PFN_DOWN(__pa(hpa_list))) |
-	       FIELD_PREP(HPA_LIST_INFO_LAST_ENTRY, nr_pages - 1);
+	       FIELD_PREP(HPA_LIST_INFO_PFN, PFN_DOWN(__pa(info->hpa_list))) |
+	       FIELD_PREP(HPA_LIST_INFO_LAST_ENTRY, info->nr_pages - 1);
 }
 
-static __init int tdx_ext_mem_add(struct tdx_hpa_list *hpa_list,
-				  unsigned int nr_pages)
+static __init int tdx_ext_mem_add(struct tdx_hpa_list_info *info)
 {
 	struct tdx_module_args args = {
-		.rcx = to_hpa_list_info(hpa_list, nr_pages),
+		.rcx = to_hpa_list_info(info),
 	};
 	u64 ret;
 
@@ -1300,6 +1298,7 @@ static __init int tdx_ext_mem_add(struct tdx_hpa_list *hpa_list,
 
 static __init int tdx_ext_mem_setup(void)
 {
+	struct tdx_hpa_list_info info;
 	struct tdx_hpa_list *hpa_list;
 	struct tdx_sys_info_ext ext;
 	unsigned int added_pages;
@@ -1326,6 +1325,8 @@ static __init int tdx_ext_mem_setup(void)
 	hpa_list = kzalloc_obj(*hpa_list);
 	if (!hpa_list)
 		return -ENOMEM;
+
+	info.hpa_list = hpa_list;
 
 	/*
 	 * Memory for TDX module extensions is never reclaimed and can be tens
@@ -1366,7 +1367,9 @@ static __init int tdx_ext_mem_setup(void)
 		for (i = 0; i < chunk_pages; i++)
 			hpa_list->phys[i] = page_to_phys(chunk + i);
 
-		ret = tdx_ext_mem_add(hpa_list, chunk_pages);
+		info.nr_pages = chunk_pages;
+
+		ret = tdx_ext_mem_add(&info);
 		if (ret) {
 			WARN(1, "TDX module rejected memory for extensions, stranded all pages\n");
 			break;
