@@ -1388,7 +1388,7 @@ static __init void init_tdx_quoting_extension(void)
 	struct tdx_sys_info_quote sysinfo_quote;
 	unsigned int nr_quote_pages;
 
-	if (!(tdx_addon_feature0 & TDX_FEATURES0_QUOTE))
+	if (!tdx_supports_quoting(&tdx_sysinfo))
 		return;
 
 	if (tdx_quote_init()) {
