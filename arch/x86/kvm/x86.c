@@ -10667,6 +10667,14 @@ void kvm_arch_gmem_invalidate_range(struct kvm *kvm, struct kvm_gfn_range *range
 	kvm_x86_call(gmem_invalidate_range)(kvm, range);
 }
 #endif
+
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREZAP
+int kvm_arch_gmem_prezap(struct kvm *kvm, gfn_t start, gfn_t end,
+			 enum kvm_gfn_range_filter attr_filter)
+{
+	return kvm_x86_call(gmem_prezap)(kvm, start, end, attr_filter);
+}
+#endif
 #endif
 
 void kvm_fixup_and_inject_pf_error(struct kvm_vcpu *vcpu, gva_t gva, u16 error_code)

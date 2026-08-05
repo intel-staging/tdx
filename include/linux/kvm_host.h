@@ -2622,6 +2622,11 @@ void kvm_arch_gmem_make_shared(kvm_pfn_t pfn, kvm_pfn_t nr_pages);
 #define kvm_arch_has_gmem_convert() false
 #endif
 
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREZAP
+int kvm_arch_gmem_prezap(struct kvm *kvm, gfn_t start, gfn_t end,
+			 enum kvm_gfn_range_filter attr_filter);
+#endif
+
 #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_POPULATE
 /**
  * kvm_gmem_populate() - Populate/prepare a GPA range with guest data

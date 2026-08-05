@@ -49,6 +49,7 @@ struct kvm_vcpu_init;
 struct kvm_memslots;
 
 enum kvm_mr_change;
+enum kvm_gfn_range_filter;
 
 /*
  * Address types:

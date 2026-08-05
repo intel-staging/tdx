@@ -217,6 +217,53 @@ static enum kvm_gfn_range_filter kvm_gmem_get_all_gfns_filter(struct inode *inod
 	return KVM_FILTER_PRIVATE;
 }
 
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREZAP
+static int __kvm_gmem_prezap(struct gmem_file *f, pgoff_t start, pgoff_t end,
+			     enum kvm_gfn_range_filter filter)
+{
+	struct kvm_memory_slot *slot;
+	unsigned long index;
+	int r;
+
+	/*
+	 * Since kvm_arch_gmem_prezap() internally holds mutex, no need to hold
+	 * mmu_lock here. Let kvm_arch_gmem_prezap() acquire mmu_lock by itself.
+	 */
+	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
+		r = kvm_arch_gmem_prezap(f->kvm,
+					 kvm_gmem_get_start_gfn(slot, start),
+					 kvm_gmem_get_end_gfn(slot, end),
+					 filter);
+		if (r)
+			return r;
+	}
+	return 0;
+}
+
+static int kvm_gmem_prezap(struct inode *inode, pgoff_t start, pgoff_t end,
+			   enum kvm_gfn_range_filter filter)
+{
+	struct gmem_file *f;
+	int r;
+
+	if (!kvm_arch_has_gmem_prezap())
+		return 0;
+
+	kvm_gmem_for_each_file(f, inode) {
+		r = __kvm_gmem_prezap(f, start, end, filter);
+		if (r)
+			return r;
+	}
+	return 0;
+}
+#else
+static int kvm_gmem_prezap(struct inode *inode, pgoff_t start, pgoff_t end,
+			   enum kvm_gfn_range_filter filter)
+{
+	return 0;
+}
+#endif
+
 static void __kvm_gmem_zap(struct gmem_file *f, pgoff_t start, pgoff_t end,
 			   enum kvm_gfn_range_filter attr_filter)
 {
@@ -326,6 +373,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	pgoff_t start = offset >> PAGE_SHIFT;
 	pgoff_t end = (offset + len) >> PAGE_SHIFT;
 	struct gmem_inode *gi = GMEM_I(inode);
+	int r = 0;
 
 	/*
 	 * gi->page_order is 0 by default and is set to PMD order only when the
@@ -342,15 +390,20 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	filemap_invalidate_lock(inode->i_mapping);
 
 	kvm_gmem_invalidate_start(inode, start, end, filter);
+	r = kvm_gmem_prezap(inode, start, end, filter);
+	if (r)
+		goto out;
+
 	kvm_gmem_zap(inode, start, end, filter);
 
 	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
 
+out:
 	kvm_gmem_invalidate_end(inode, start, end);
 
 	filemap_invalidate_unlock(inode->i_mapping);
 
-	return 0;
+	return r;
 }
 
 static long kvm_gmem_allocate(struct inode *inode, loff_t offset, loff_t len)
@@ -497,6 +550,8 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	 * memory, as its lifetime is associated with the inode, not the file.
 	 */
 	__kvm_gmem_invalidate_start(f, 0, -1ul, filter);
+
+	/* No need to prezap since all mappings will be gone */
 	__kvm_gmem_zap(f, 0, -1ul, filter);
 	__kvm_gmem_invalidate_end(f, 0, -1ul);
 
@@ -824,6 +879,14 @@ static int __kvm_gmem_set_attributes(struct inode *inode, pgoff_t start,
 
 	filter = to_private ? KVM_FILTER_SHARED : KVM_FILTER_PRIVATE;
 	kvm_gmem_invalidate_start(inode, start, end, filter);
+	r = kvm_gmem_prezap(inode, start, end, filter);
+	if (r) {
+		*err_index = start;
+		mas_destroy(&mas);
+		kvm_gmem_invalidate_end(inode, start, end);
+		goto out;
+	}
+
 	kvm_gmem_zap(inode, start, end, filter);
 
 	if (!to_private && kvm_arch_has_gmem_convert())

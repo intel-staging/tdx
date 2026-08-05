@@ -157,6 +157,9 @@ KVM_X86_OP_OPTIONAL(gmem_make_shared)
 #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
 KVM_X86_OP_OPTIONAL(gmem_invalidate_range)
 #endif
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREZAP
+KVM_X86_OP_OPTIONAL_RET0(gmem_prezap)
+#endif
 KVM_X86_OP_OPTIONAL_RET0(gmem_max_mapping_level)
 #endif
 

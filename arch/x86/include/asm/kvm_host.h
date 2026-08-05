@@ -1745,6 +1745,19 @@ struct kvm_x86_ops {
 #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_INVALIDATE
 	void (*gmem_invalidate_range)(struct kvm *kvm, struct kvm_gfn_range *range);
 #endif
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREZAP
+	/*
+	 * Preparation before gmem triggering MMU zap, e.g., splitting huge
+	 * mappings in S-EPT to prevent over-zapping in TDX.
+	 * Note: Though the preparation is allowed to fail, it must be safe to
+	 * proceed without any rollback when an error occurs. For example, if an
+	 * error occurs while splitting a huge mapping, it is safe to leave the
+	 * preceding successfully split mappings as-is rather than merging them
+	 * back.
+	 */
+	int (*gmem_prezap)(struct kvm *kvm, gfn_t start, gfn_t end,
+			   enum kvm_gfn_range_filter attr_filter);
+#endif
 	int (*gmem_max_mapping_level)(struct kvm *kvm, kvm_pfn_t pfn, bool is_private);
 };
 
@@ -1865,6 +1878,9 @@ enum kvm_intr_type {
 #endif
 #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_CONVERT
 #define kvm_arch_has_gmem_convert() (!!kvm_x86_ops.gmem_make_private)
+#endif
+#ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREZAP
+#define kvm_arch_has_gmem_prezap() (!!kvm_x86_ops.gmem_prezap)
 #endif
 
 #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)
