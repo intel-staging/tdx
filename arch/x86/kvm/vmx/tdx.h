@@ -47,6 +47,11 @@ struct kvm_tdx {
 	 * Set/unset is protected with kvm->mmu_lock.
 	 */
 	bool wait_for_sept_zap;
+
+	/* The per-VM cache for DPAMT pages for S-EPT pages and guest pages */
+	struct tdx_pamt_cache pamt_cache;
+	/* Protect the per-VM cache for DPAMT pages */
+	struct mutex pamt_cache_lock;
 };
 
 /* TDX module vCPU states */

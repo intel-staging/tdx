@@ -585,6 +585,8 @@ void tdx_vm_destroy(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
+	tdx_free_pamt_cache(&kvm_tdx->pamt_cache);
+
 	tdx_reclaim_td_control_pages(kvm);
 
 	kvm_tdx->state = TD_STATE_UNINITIALIZED;
@@ -649,6 +651,9 @@ int tdx_vm_init(struct kvm *kvm)
 	kvm->max_vcpus = min_t(int, kvm->max_vcpus, num_present_cpus());
 
 	kvm_tdx->state = TD_STATE_UNINITIALIZED;
+
+	tdx_init_pamt_cache(&kvm_tdx->pamt_cache);
+	mutex_init(&kvm_tdx->pamt_cache_lock);
 
 	return 0;
 }
@@ -1629,15 +1634,31 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
 	td_vmcs_write64(to_tdx(vcpu), SHARED_EPT_POINTER, root_hpa);
 }
 
-static int tdx_topup_external_pamt_cache(struct kvm_vcpu *vcpu, int min_nr_spts)
+static struct tdx_pamt_cache *tdx_get_pamt_cache(struct kvm *kvm,
+						 struct kvm_vcpu *vcpu)
 {
+	if (KVM_BUG_ON(vcpu && vcpu->kvm != kvm, kvm))
+		return NULL;
+
+	if (vcpu)
+		return &to_tdx(vcpu)->pamt_cache;
+
+	lockdep_assert_held(&to_kvm_tdx(kvm)->pamt_cache_lock);
+	return &to_kvm_tdx(kvm)->pamt_cache;
+}
+
+static int tdx_topup_external_pamt_cache(struct kvm *kvm, struct kvm_vcpu *vcpu,
+					 int min_nr_spts)
+{
+	struct tdx_pamt_cache *pamt_cache;
 	int dpamt_pairs;
 
-	if (WARN_ON_ONCE(!vcpu))
+	pamt_cache = tdx_get_pamt_cache(kvm, vcpu);
+	if (!pamt_cache)
 		return -EIO;
 
 	/* Exclude the root SPT, as its DPAMT page pair is already installed */
-	if (min_nr_spts == vcpu->kvm->arch.mirror_root_level)
+	if (min_nr_spts == kvm->arch.mirror_root_level)
 		min_nr_spts -= 1;
 
 	/*
@@ -1658,7 +1679,7 @@ static int tdx_topup_external_pamt_cache(struct kvm_vcpu *vcpu, int min_nr_spts)
 	 */
 	dpamt_pairs += 1;
 
-	return tdx_topup_pamt_cache(&to_tdx(vcpu)->pamt_cache, dpamt_pairs);
+	return tdx_topup_pamt_cache(pamt_cache, dpamt_pairs);
 }
 
 static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn, enum pg_level level,
@@ -1909,8 +1930,8 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
 static int tdx_sept_split_leaf_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 				    u64 new_spte, enum pg_level level)
 {
-	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_pamt_cache *pamt_cache;
 	gpa_t gpa = gfn_to_gpa(gfn);
 	u64 err, entry, level_state;
 	struct page *sept_pt;
@@ -1925,10 +1946,11 @@ static int tdx_sept_split_leaf_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 	if (!sept_pt)
 		return -EIO;
 
-	if (KVM_BUG_ON(!vcpu || vcpu->kvm != kvm, kvm))
+	pamt_cache = tdx_get_pamt_cache(kvm, kvm_get_running_vcpu());
+	if (!pamt_cache)
 		return -EIO;
 
-	r = tdx_pamt_get(page_to_pfn(sept_pt), PG_LEVEL_4K, &to_tdx(vcpu)->pamt_cache);
+	r = tdx_pamt_get(page_to_pfn(sept_pt), PG_LEVEL_4K, pamt_cache);
 	if (KVM_BUG_ON(r, kvm))
 		return r;
 
@@ -1941,8 +1963,8 @@ static int tdx_sept_split_leaf_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 
 	tdx_track(kvm);
 	err = tdh_do_no_vcpus(tdh_mem_page_demote, kvm, &kvm_tdx->td, gpa,
-			      level, spte_to_pfn(old_spte), sept_pt,
-			      &to_tdx(vcpu)->pamt_cache, &entry, &level_state);
+			      level, spte_to_pfn(old_spte), sept_pt, pamt_cache,
+			      &entry, &level_state);
 	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_DEMOTE, entry, level_state, kvm)) {
 		r = -EIO;
 		goto err;
@@ -2025,6 +2047,60 @@ static void tdx_sept_free_private_spt(struct kvm *kvm, struct kvm_mmu_page *sp)
 	tdx_free_control_page(sept_pt);
 out:
 	sp->external_spt = NULL;
+}
+
+static int tdx_sept_split_huge_page_at(struct kvm *kvm, gfn_t gfn, int target_level)
+{
+	gfn_t end = gfn + KVM_PAGES_PER_HPAGE(target_level + 1);
+
+	return kvm_tdp_mmu_mirrors_split_huge_pages(kvm, gfn, end, target_level);
+}
+
+static int tdx_sept_split_straddling_huge_pages_to_level(struct kvm *kvm, gfn_t start,
+							 gfn_t end, int target_level)
+{
+	gfn_t head = gfn_round_for_level(start, target_level + 1);
+	gfn_t tail = gfn_round_for_level(end, target_level + 1);
+	int r;
+
+	if (head != start) {
+		r = tdx_sept_split_huge_page_at(kvm, head, target_level);
+		if (r)
+			return r;
+	}
+
+	if (tail != end && (head != tail || head == start)) {
+		r = tdx_sept_split_huge_page_at(kvm, tail, target_level);
+		if (r)
+			return r;
+	}
+
+	return 0;
+}
+
+/*
+ * Split S-EPT huge mappings that straddle [start, end) under non-vCPU context.
+ *
+ * Split potential huge mappings at the head and tail of the to-be-zapped range
+ * so that KVM doesn't overzap due to dropping a hugepage that doesn't fall
+ * wholly inside the range.
+ *
+ * Acquire the external cache lock, a.k.a. the Dynamic PAMT lock, to protect the
+ * per-VM cache of pre-allocated pages used to populate the Dynamic PAMT when
+ * splitting S-EPT huge pages.
+ */
+static int __maybe_unused tdx_sept_split_huge_pages(struct kvm *kvm, gfn_t start,
+						    gfn_t end)
+{
+	guard(mutex)(&to_kvm_tdx(kvm)->pamt_cache_lock);
+
+	guard(write_lock)(&kvm->mmu_lock);
+
+	/*
+	 * TODO: Also split from PG_LEVEL_1G => PG_LEVEL_2M when KVM supports
+	 *       1GB S-EPT pages.
+	 */
+	return tdx_sept_split_straddling_huge_pages_to_level(kvm, start, end, PG_LEVEL_4K);
 }
 
 void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,

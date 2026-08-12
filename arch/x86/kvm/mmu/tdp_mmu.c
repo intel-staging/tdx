@@ -1466,7 +1466,8 @@ bool kvm_tdp_mmu_wrprot_slot(struct kvm *kvm,
 	return spte_set;
 }
 
-static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(bool is_mirror_sp)
+static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
+						       bool is_mirror_sp)
 {
 	struct kvm_mmu_page *sp;
 
@@ -1483,7 +1484,7 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(bool is_mirror_sp)
 		if (!sp->external_spt)
 			goto err_external_spt;
 
-		if (kvm_x86_call(topup_external_cache)(kvm_get_running_vcpu(), 1))
+		if (kvm_x86_call(topup_external_cache)(kvm, kvm_get_running_vcpu(), 1))
 			goto err_external_split;
 	}
 
@@ -1575,7 +1576,7 @@ retry:
 			else
 				write_unlock(&kvm->mmu_lock);
 
-			sp = tdp_mmu_alloc_sp_for_split(is_mirror_root);
+			sp = tdp_mmu_alloc_sp_for_split(kvm, is_mirror_root);
 
 			if (shared)
 				read_lock(&kvm->mmu_lock);
