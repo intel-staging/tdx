@@ -147,6 +147,7 @@ config KVM_INTEL_TDX
 	default y
 	depends on INTEL_TDX_HOST
 	select HAVE_KVM_ARCH_GMEM_POPULATE
+	select HAVE_KVM_ARCH_GMEM_PREZAP
 	help
 	  Provides support for launching Intel Trust Domain Extensions (TDX)
 	  confidential VMs on Intel processors.

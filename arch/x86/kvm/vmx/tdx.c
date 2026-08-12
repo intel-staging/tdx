@@ -2089,8 +2089,7 @@ static int tdx_sept_split_straddling_huge_pages_to_level(struct kvm *kvm, gfn_t 
  * per-VM cache of pre-allocated pages used to populate the Dynamic PAMT when
  * splitting S-EPT huge pages.
  */
-static int __maybe_unused tdx_sept_split_huge_pages(struct kvm *kvm, gfn_t start,
-						    gfn_t end)
+static int tdx_sept_split_huge_pages(struct kvm *kvm, gfn_t start, gfn_t end)
 {
 	guard(mutex)(&to_kvm_tdx(kvm)->pamt_cache_lock);
 
@@ -2101,6 +2100,20 @@ static int __maybe_unused tdx_sept_split_huge_pages(struct kvm *kvm, gfn_t start
 	 *       1GB S-EPT pages.
 	 */
 	return tdx_sept_split_straddling_huge_pages_to_level(kvm, start, end, PG_LEVEL_4K);
+}
+
+/*
+ * Before zapping private mappings, KVM must first split any huge mappings that
+ * straddle the zapping range, as KVM mustn't overzap private mappings for TDX
+ * guests, i.e. KVM must zap _exactly_ [start, end).
+ */
+static int tdx_gmem_prezap(struct kvm *kvm, gfn_t start, gfn_t end,
+			   enum kvm_gfn_range_filter attr_filter)
+{
+	if (!(attr_filter & KVM_FILTER_PRIVATE) || !kvm_has_mirrored_tdp(kvm))
+		return 0;
+
+	return tdx_sept_split_huge_pages(kvm, start, end);
 }
 
 void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
@@ -3799,6 +3812,7 @@ int __init tdx_hardware_setup(void)
 
 	vt_x86_ops.set_external_spte = tdx_sept_set_private_spte;
 	vt_x86_ops.free_external_spt = tdx_sept_free_private_spt;
+	vt_x86_ops.gmem_prezap = tdx_gmem_prezap;
 
 	if (tdx_supports_dynamic_pamt(tdx_sysinfo))
 		vt_x86_ops.topup_external_cache = tdx_topup_external_pamt_cache;
