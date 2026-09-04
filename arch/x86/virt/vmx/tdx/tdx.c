@@ -75,12 +75,18 @@ static struct tdmr_info_list tdx_tdmr_list;
  */
 static atomic_t *dpamt_refcounts;
 
+/* Serializes adding/removing DPAMT memory */
+static DEFINE_SPINLOCK(dpamt_lock);
+
 /* All TDX-usable memory regions.  Protected by mem_hotplug_lock. */
 static LIST_HEAD(tdx_memlist);
 
 static struct tdx_sys_info tdx_sysinfo;
 
 static DEFINE_RAW_SPINLOCK(sysinit_lock);
+
+static int alloc_pamt_array(struct page **pamt_pages, struct tdx_pamt_cache *cache);
+static void free_pamt_array(struct page **pamt_pages);
 
 /*
  * Do the module global initialization once and return its result.
@@ -1827,6 +1833,79 @@ u64 tdh_mng_rd(struct tdx_td *td, u64 field, u64 *data)
 }
 EXPORT_SYMBOL_FOR_KVM(tdh_mng_rd);
 
+static u64 __tdh_mem_page_demote(struct tdx_td *td, u64 gpa, enum pg_level level,
+				 struct page *new_sept_pt, struct page **dpamt_pages,
+				 u64 *ext_err1, u64 *ext_err2)
+{
+	struct tdx_module_args args = {
+		.rcx = gpa | pg_level_to_tdx_sept_level(level),
+		.rdx = tdx_tdr_pa(td),
+		.r8 = page_to_phys(new_sept_pt),
+		.r12 = page_to_phys(dpamt_pages[0]),
+		.r13 = page_to_phys(dpamt_pages[1]),
+	};
+	u64 ret;
+
+	ret = seamcall_saved_ret(TDH_MEM_PAGE_DEMOTE, &args);
+
+	*ext_err1 = args.rcx;
+	*ext_err2 = args.rdx;
+	return ret;
+}
+
+u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, enum pg_level level, kvm_pfn_t pfn,
+			struct page *new_sept_pt, struct tdx_pamt_cache *pamt_cache,
+			u64 *ext_err1, u64 *ext_err2)
+{
+	atomic_t *dpamt_refcount = tdx_find_dpamt_refcount(pfn);
+	struct page *dpamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT];
+	u64 ret;
+
+	*ext_err1 = 0;
+	*ext_err2 = 0;
+
+	if (WARN_ON_ONCE(!tdx_huge_page_demote_uninterruptible(&tdx_sysinfo) ||
+			 !tdx_supports_dynamic_pamt(&tdx_sysinfo) ||
+			 level != PG_LEVEL_2M))
+		return TDX_SW_ERROR;
+
+	if (WARN_ON_ONCE(alloc_pamt_array(dpamt_pages, pamt_cache)))
+		return TDX_SW_ERROR;
+
+	/*
+	 * The dpamt_lock is used to avoid contention between the
+	 * TDH_MEM_PAGE_DEMOTE and TDH_PHYMEM_PAMT_{ADD/REMOVE} SEAMCALLs.
+	 */
+	spin_lock(&dpamt_lock);
+
+	/*
+	 * The caller ensures that DEMOTE is only invoked on a 2MB mapping, so
+	 * dpamt_refcount must be 0.
+	 */
+	if (WARN_ON_ONCE(atomic_read(dpamt_refcount))) {
+		ret = TDX_SW_ERROR;
+		goto out_free;
+	}
+
+	ret = __tdh_mem_page_demote(td, gpa, level, new_sept_pt, dpamt_pages,
+				    ext_err1, ext_err2);
+	if (ret != TDX_SUCCESS) {
+		WARN_ON_ONCE((ret & TDX_SEAMCALL_STATUS_MASK) != TDX_OPERAND_BUSY);
+		goto out_free;
+	}
+
+	atomic_set(dpamt_refcount, PMD_SIZE / PAGE_SIZE);
+	spin_unlock(&dpamt_lock);
+
+	return TDX_SUCCESS;
+
+out_free:
+	spin_unlock(&dpamt_lock);
+	free_pamt_array(dpamt_pages);
+	return ret;
+}
+EXPORT_SYMBOL_FOR_KVM(tdh_mem_page_demote);
+
 u64 tdh_mr_extend(struct tdx_td *td, u64 gpa, u64 *ext_err1, u64 *ext_err2)
 {
 	struct tdx_module_args args = {
@@ -2107,9 +2186,6 @@ static u64 tdh_phymem_pamt_remove(kvm_pfn_t pfn, struct page **pamt_pages)
 
 	return 0;
 }
-
-/* Serializes adding/removing DPAMT memory */
-static DEFINE_SPINLOCK(dpamt_lock);
 
 /* Bump DPAMT refcount for the given pfn and allocate DPAMT backing if needed. */
 int tdx_pamt_get(kvm_pfn_t pfn, enum pg_level level, struct tdx_pamt_cache *cache)
