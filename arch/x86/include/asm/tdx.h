@@ -135,8 +135,8 @@ static inline void tdx_init_pamt_cache(struct tdx_pamt_cache *cache)
 
 void tdx_free_pamt_cache(struct tdx_pamt_cache *cache);
 int tdx_topup_pamt_cache(struct tdx_pamt_cache *cache, unsigned long npages);
-int tdx_pamt_get(kvm_pfn_t pfn, struct tdx_pamt_cache *cache);
-void tdx_pamt_put(kvm_pfn_t pfn);
+int tdx_pamt_get(kvm_pfn_t pfn, enum pg_level level, struct tdx_pamt_cache *cache);
+void tdx_pamt_put(kvm_pfn_t pfn, enum pg_level level);
 
 int tdx_guest_keyid_alloc(void);
 u32 tdx_get_nr_guest_keyids(void);

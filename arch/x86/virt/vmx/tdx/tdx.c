@@ -2112,14 +2112,14 @@ static u64 tdh_phymem_pamt_remove(kvm_pfn_t pfn, struct page **pamt_pages)
 static DEFINE_SPINLOCK(dpamt_lock);
 
 /* Bump DPAMT refcount for the given pfn and allocate DPAMT backing if needed. */
-int tdx_pamt_get(kvm_pfn_t pfn, struct tdx_pamt_cache *cache)
+int tdx_pamt_get(kvm_pfn_t pfn, enum pg_level level, struct tdx_pamt_cache *cache)
 {
 	struct page *pamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT];
 	atomic_t *dpamt_refcount;
 	u64 tdx_status;
 	int ret;
 
-	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
+	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo) || level != PG_LEVEL_4K)
 		return 0;
 
 	ret = alloc_pamt_array(pamt_pages, cache);
@@ -2157,13 +2157,13 @@ out_free:
 EXPORT_SYMBOL_FOR_KVM(tdx_pamt_get);
 
 /* Drop DPAMT refcount for the given pfn and free DPAMT backing if needed. */
-void tdx_pamt_put(kvm_pfn_t pfn)
+void tdx_pamt_put(kvm_pfn_t pfn, enum pg_level level)
 {
 	struct page *pamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT] = {};
 	atomic_t *dpamt_refcount;
 	u64 tdx_status;
 
-	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
+	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo) || level != PG_LEVEL_4K)
 		return;
 
 	dpamt_refcount = tdx_find_dpamt_refcount(pfn);
@@ -2243,7 +2243,7 @@ struct page *tdx_alloc_control_page(void)
 	if (!page)
 		return NULL;
 
-	if (tdx_pamt_get(page_to_pfn(page), NULL)) {
+	if (tdx_pamt_get(page_to_pfn(page), PG_LEVEL_4K, NULL)) {
 		__free_page(page);
 		return NULL;
 	}
@@ -2261,7 +2261,7 @@ void tdx_free_control_page(struct page *page)
 	if (!page)
 		return;
 
-	tdx_pamt_put(page_to_pfn(page));
+	tdx_pamt_put(page_to_pfn(page), PG_LEVEL_4K);
 	__free_page(page);
 }
 EXPORT_SYMBOL_FOR_KVM(tdx_free_control_page);

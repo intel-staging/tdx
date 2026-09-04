@@ -1710,14 +1710,18 @@ static int tdx_sept_map_nonleaf_spte(struct kvm *kvm, gfn_t gfn,
 	if (!sept_pt)
 		return -EIO;
 
-	ret = tdx_pamt_get(page_to_pfn(sept_pt), &to_tdx(vcpu)->pamt_cache);
+	/*
+	 * An S-EPT page table page is tracked by the TDX module at 4KB level,
+	 * so pass 4KB instead of the target S-EPT level.
+	 */
+	ret = tdx_pamt_get(page_to_pfn(sept_pt), PG_LEVEL_4K, &to_tdx(vcpu)->pamt_cache);
 	if (KVM_BUG_ON(ret, kvm))
 		return ret;
 
 	err = tdh_mem_sept_add(&to_kvm_tdx(kvm)->td, gpa, level, sept_pt,
 			       &entry, &level_state);
 	if (err)
-		tdx_pamt_put(page_to_pfn(sept_pt));
+		tdx_pamt_put(page_to_pfn(sept_pt), PG_LEVEL_4K);
 
 	if (unlikely(tdx_operand_busy(err)))
 		return -EBUSY;
@@ -1745,7 +1749,7 @@ static int tdx_sept_map_leaf_spte(struct kvm *kvm, gfn_t gfn, enum pg_level leve
 
 	WARN_ON_ONCE((new_spte & VMX_EPT_RWX_MASK) != VMX_EPT_RWX_MASK);
 
-	ret = tdx_pamt_get(pfn, &to_tdx(vcpu)->pamt_cache);
+	ret = tdx_pamt_get(pfn, level, &to_tdx(vcpu)->pamt_cache);
 	if (KVM_BUG_ON(ret, kvm))
 		return ret;
 
@@ -1767,7 +1771,7 @@ static int tdx_sept_map_leaf_spte(struct kvm *kvm, gfn_t gfn, enum pg_level leve
 		ret = tdx_mem_page_add(kvm, gfn, level, pfn);
 
 	if (ret)
-		tdx_pamt_put(pfn);
+		tdx_pamt_put(pfn, level);
 
 	return ret;
 }
@@ -1862,7 +1866,7 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
 		return -EIO;
 
 	tdx_quirk_reset_paddr(PFN_PHYS(pfn), PAGE_SIZE);
-	tdx_pamt_put(pfn);
+	tdx_pamt_put(pfn, level);
 	return 0;
 }
 
