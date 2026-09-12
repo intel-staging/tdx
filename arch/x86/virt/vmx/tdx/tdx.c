@@ -1001,7 +1001,7 @@ static __init int construct_tdmrs(struct list_head *tmb_list,
 /* List all kernel supported add-on features0 bits here */
 #define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(0)
 
-static __init u64 get_tdx_addon_features0(void)
+static u64 get_tdx_addon_features0(void)
 {
 	return tdx_sysinfo.features.tdx_features0 &
 		TDX_KERNEL_SUPPORTED_ADDON_FEATURES0;
@@ -1311,7 +1311,7 @@ out_free_hpa_list:
 	return ret;
 }
 
-static __init int tdx_ext_init(void)
+static int tdx_ext_init(void)
 {
 	struct tdx_module_args args = {};
 	u64 ret;
@@ -1350,6 +1350,19 @@ static __init int init_tdx_module_extensions(void)
 	ret = tdx_ext_mem_setup();
 	if (ret)
 		return ret;
+
+	return tdx_ext_init();
+}
+
+/*
+ * Don't update the extensions metadata, just follow the requirement originated
+ * during TDX module initialization. Let the extensions re-initialization fail
+ * if more memory is needed, or if ext_required is dropped after updates.
+ */
+static int reinit_tdx_module_extensions(void)
+{
+	if (!tdx_sysinfo.ext.ext_required)
+		return 0;
 
 	return tdx_ext_init();
 }
@@ -1522,12 +1535,32 @@ int tdx_module_shutdown(void)
 	return 0;
 }
 
+static int tdx_sys_update(void)
+{
+	u64 addon_features0 = get_tdx_addon_features0();
+	struct tdx_module_args args = {};
+
+	/*
+	 * Use SEAMCALL version 1 that supports add-on features if any are
+	 * requested. Use version 0 if none for backward compatibility.
+	 */
+	if (addon_features0) {
+		args.r9 = addon_features0;
+		args.version = 1;
+	}
+
+	return seamcall_prerr(TDH_SYS_UPDATE, &args);
+}
+
 int tdx_module_run_update(void)
 {
-	struct tdx_module_args args = {};
 	int ret;
 
-	ret = seamcall_prerr(TDH_SYS_UPDATE, &args);
+	ret = tdx_sys_update();
+	if (ret)
+		return ret;
+
+	ret = reinit_tdx_module_extensions();
 	if (ret)
 		return ret;
 
