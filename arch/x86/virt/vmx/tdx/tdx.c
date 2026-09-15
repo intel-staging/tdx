@@ -1042,9 +1042,19 @@ struct tdmr_info_pa_array {
 	DECLARE_FLEX_ARRAY(u64, phys);
 };
 
+/* List all kernel-supported add-on features0 bits here */
+#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(0)
+
+static __init u64 get_tdx_usable_addon_features0(void)
+{
+	return tdx_sysinfo.features.tdx_features0 &
+		TDX_KERNEL_SUPPORTED_ADDON_FEATURES0;
+}
+
 static __init int tdx_sys_config(struct tdmr_info_pa_array *tdmr_pa_array,
 				 unsigned int nr_tdmr_pa, u64 global_keyid)
 {
+	u64 addon_features0 = get_tdx_usable_addon_features0();
 	struct tdx_module_args args = {
 		.rcx = __pa(tdmr_pa_array),
 		.rdx = nr_tdmr_pa,
@@ -1054,6 +1064,15 @@ static __init int tdx_sys_config(struct tdmr_info_pa_array *tdmr_pa_array,
 	if (tdx_supports_dynamic_pamt(&tdx_sysinfo)) {
 		pr_info("Enable Dynamic PAMT\n");
 		args.r8 |= TDX_SYS_CONFIG_DYNAMIC_PAMT;
+	}
+
+	/*
+	 * Use SEAMCALL version 1 that supports add-on features if any are
+	 * requested. Otherwise use version 0 for backward compatibility.
+	 */
+	if (addon_features0) {
+		args.r9 = addon_features0;
+		args.version = 1;
 	}
 
 	return seamcall_prerr(TDH_SYS_CONFIG, &args);
