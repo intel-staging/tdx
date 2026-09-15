@@ -1220,6 +1220,140 @@ static __init int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+#define TDX_HPA_LIST_MAX_NR_PAGES	(PAGE_SIZE / sizeof(u64))
+
+/*
+ * TDX module in-memory ABI to specify the memory being added to the TDX
+ * module. An array of HPAs, each element points to a 4K page.
+ */
+struct tdx_hpa_list {
+	u64 phys[TDX_HPA_LIST_MAX_NR_PAGES];
+};
+
+static_assert(sizeof(struct tdx_hpa_list) == PAGE_SIZE);
+
+#define HPA_LIST_INFO_FIRST_ENTRY	GENMASK_U64(11, 3)
+#define HPA_LIST_INFO_PFN		GENMASK_U64(51, 12)
+#define HPA_LIST_INFO_LAST_ENTRY	GENMASK_U64(63, 55)
+
+static __init u64 to_hpa_list_info(struct tdx_hpa_list *hpa_list,
+				   unsigned int nr_pages)
+{
+	return FIELD_PREP(HPA_LIST_INFO_FIRST_ENTRY, 0) |
+	       FIELD_PREP(HPA_LIST_INFO_PFN, PFN_DOWN(__pa(hpa_list))) |
+	       FIELD_PREP(HPA_LIST_INFO_LAST_ENTRY, nr_pages - 1);
+}
+
+static __init int tdx_ext_mem_add(struct tdx_hpa_list *hpa_list,
+				  unsigned int nr_pages)
+{
+	struct tdx_module_args args = {
+		.rcx = to_hpa_list_info(hpa_list, nr_pages),
+	};
+	u64 ret;
+
+	do {
+		/*
+		 * The TDX module overwrites RCX to track progress when this
+		 * SEAMCALL leaf is interrupted. Use seamcall_ret() to save and
+		 * pass the updated value back on retry.
+		 */
+		ret = seamcall_ret(TDH_EXT_MEM_ADD, &args);
+	} while (ret == TDX_INTERRUPTED_RESUMABLE);
+
+	if (ret != TDX_SUCCESS) {
+		pr_err("TDH.EXT.MEM.ADD failed: 0x%016llx\n", ret);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static __init int tdx_ext_mem_setup(void)
+{
+	struct tdx_hpa_list *hpa_list;
+	struct tdx_sys_info_ext ext;
+	unsigned int added_pages;
+	struct page *page;
+	int ret;
+
+	ret = get_tdx_sys_info_ext(&ext);
+	if (ret)
+		return ret;
+
+	/*
+	 * Skip the memory setup if no memory is required. This may happen when
+	 * no add-on features requiring TDX module extensions are configured
+	 * via TDH.SYS.CONFIG.
+	 */
+	if (!ext.required_pages)
+		return 0;
+
+	/*
+	 * Allocate the container page for the HPA_LIST. tdx_hpa_list is
+	 * guaranteed to be page-sized by static_assert(), so kzalloc()
+	 * guarantees the page alignment.
+	 */
+	hpa_list = kzalloc_obj(*hpa_list);
+	if (!hpa_list)
+		return -ENOMEM;
+
+	/*
+	 * Memory for TDX module extensions is never reclaimed and can be tens
+	 * of megabytes. Allocating a physically contiguous chunk is a simple
+	 * way to avoid permanent memory fragmentation: requiring the full size
+	 * to be contiguous is more expensive than needed but should be good
+	 * during the boot time.
+	 */
+	page = alloc_contig_pages(ext.required_pages, GFP_KERNEL,
+				  numa_mem_id(), &node_online_map);
+	if (!page) {
+		ret = -ENOMEM;
+		goto out_free_hpa_list;
+	}
+
+	/* Print the amount so users know the cost. */
+	pr_info("%lu KB allocated for TDX module extensions\n",
+		ext.required_pages * PAGE_SIZE / 1024);
+
+	/*
+	 * Following TDX operations shouldn't fail, and if they do, things are
+	 * broken enough that complex error handling isn't worth it.
+	 * Intentionally leak all pages on failure, including un-added pages.
+	 */
+	added_pages = 0;
+	while (added_pages < ext.required_pages) {
+		unsigned int chunk_pages = min(ext.required_pages - added_pages,
+					       TDX_HPA_LIST_MAX_NR_PAGES);
+		struct page *chunk = page + added_pages;
+		unsigned int i;
+
+		for (i = 0; i < chunk_pages; i++)
+			hpa_list->phys[i] = page_to_phys(chunk + i);
+
+		ret = tdx_ext_mem_add(hpa_list, chunk_pages);
+		if (ret) {
+			WARN(1, "TDX module rejected memory for extensions, stranded all pages\n");
+			break;
+		}
+
+		added_pages += chunk_pages;
+	}
+
+out_free_hpa_list:
+	kfree(hpa_list);
+
+	return ret;
+}
+
+static __init int init_tdx_module_extensions(void)
+{
+	if (!(tdx_sysinfo.features.tdx_features0 & TDX_FEATURES0_EXT))
+		return 0;
+
+	return tdx_ext_mem_setup();
+}
+
 static __init int init_tdx_module(void)
 {
 	int ret;
@@ -1275,6 +1409,10 @@ static __init int init_tdx_module(void)
 
 	/* Initialize TDMRs to complete the TDX module initialization */
 	ret = init_tdmrs(&tdx_tdmr_list);
+	if (ret)
+		goto err_reset_pamts;
+
+	ret = init_tdx_module_extensions();
 	if (ret)
 		goto err_reset_pamts;
 
