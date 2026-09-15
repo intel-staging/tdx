@@ -1033,11 +1033,36 @@ static __init int construct_tdmrs(struct list_head *tmb_list,
 
 #define TDX_SYS_CONFIG_DYNAMIC_PAMT	BIT(16)
 
+/*
+ * TDX module in-memory ABI to specify the TD Memory Regions (TDMRs) and their
+ * associated PAMT memory. An array of HPAs, each element points to a
+ * TDMR_INFO, see struct tdmr_info.
+ */
+struct tdmr_info_pa_array {
+	DECLARE_FLEX_ARRAY(u64, phys);
+};
+
+static __init int tdx_sys_config(struct tdmr_info_pa_array *tdmr_pa_array,
+				 unsigned int nr_tdmr_pa, u64 global_keyid)
+{
+	struct tdx_module_args args = {
+		.rcx = __pa(tdmr_pa_array),
+		.rdx = nr_tdmr_pa,
+		.r8 = global_keyid,
+	};
+
+	if (tdx_supports_dynamic_pamt(&tdx_sysinfo)) {
+		pr_info("Enable Dynamic PAMT\n");
+		args.r8 |= TDX_SYS_CONFIG_DYNAMIC_PAMT;
+	}
+
+	return seamcall_prerr(TDH_SYS_CONFIG, &args);
+}
+
 static __init int config_tdx_module(struct tdmr_info_list *tdmr_list,
 				    u64 global_keyid)
 {
-	struct tdx_module_args args = {};
-	u64 *tdmr_pa_array;
+	struct tdmr_info_pa_array *tdmr_pa_array;
 	size_t array_sz;
 	int i, ret;
 
@@ -1046,7 +1071,8 @@ static __init int config_tdx_module(struct tdmr_info_list *tdmr_list,
 	 * addresses of each TDMR.  The array itself also has certain
 	 * alignment requirement.
 	 */
-	array_sz = tdmr_list->nr_consumed_tdmrs * sizeof(u64);
+	array_sz = tdmr_list->nr_consumed_tdmrs *
+		sizeof(tdmr_pa_array->phys[0]);
 	array_sz = roundup_pow_of_two(array_sz);
 	if (array_sz < TDMR_INFO_PA_ARRAY_ALIGNMENT)
 		array_sz = TDMR_INFO_PA_ARRAY_ALIGNMENT;
@@ -1056,18 +1082,10 @@ static __init int config_tdx_module(struct tdmr_info_list *tdmr_list,
 		return -ENOMEM;
 
 	for (i = 0; i < tdmr_list->nr_consumed_tdmrs; i++)
-		tdmr_pa_array[i] = __pa(tdmr_entry(tdmr_list, i));
+		tdmr_pa_array->phys[i] = __pa(tdmr_entry(tdmr_list, i));
 
-	args.rcx = __pa(tdmr_pa_array);
-	args.rdx = tdmr_list->nr_consumed_tdmrs;
-	args.r8 = global_keyid;
-
-	if (tdx_supports_dynamic_pamt(&tdx_sysinfo)) {
-		pr_info("Enable Dynamic PAMT\n");
-		args.r8 |= TDX_SYS_CONFIG_DYNAMIC_PAMT;
-	}
-
-	ret = seamcall_prerr(TDH_SYS_CONFIG, &args);
+	ret = tdx_sys_config(tdmr_pa_array, tdmr_list->nr_consumed_tdmrs,
+			     global_keyid);
 
 	/* Free the array as it is not required anymore. */
 	kfree(tdmr_pa_array);
