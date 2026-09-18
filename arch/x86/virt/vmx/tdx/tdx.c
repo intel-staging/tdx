@@ -1045,7 +1045,7 @@ struct tdmr_info_pa_array {
 /* List all kernel-supported add-on features0 bits here */
 #define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(0)
 
-static __init u64 get_tdx_usable_addon_features0(void)
+static u64 get_tdx_usable_addon_features0(void)
 {
 	return tdx_sysinfo.features.tdx_features0 &
 		TDX_KERNEL_SUPPORTED_ADDON_FEATURES0;
@@ -1571,12 +1571,28 @@ int tdx_module_shutdown(void)
 	return 0;
 }
 
+static int tdx_sys_update(void)
+{
+	u64 addon_features0 = get_tdx_usable_addon_features0();
+	struct tdx_module_args args = {};
+
+	/*
+	 * Use SEAMCALL version 1 that supports add-on features if any are
+	 * requested. Use version 0 if none for backward compatibility.
+	 */
+	if (addon_features0) {
+		args.r9 = addon_features0;
+		args.version = 1;
+	}
+
+	return seamcall_prerr(TDH_SYS_UPDATE, &args);
+}
+
 int tdx_module_run_update(void)
 {
-	struct tdx_module_args args = {};
 	int ret;
 
-	ret = seamcall_prerr(TDH_SYS_UPDATE, &args);
+	ret = tdx_sys_update();
 	if (ret)
 		return ret;
 
