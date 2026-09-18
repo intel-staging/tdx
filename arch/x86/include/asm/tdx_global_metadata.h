@@ -49,6 +49,7 @@ struct tdx_sys_info_handoff {
 
 struct tdx_sys_info_ext {
 	u32 memory_pool_required_pages;
+	bool ext_required;
 };
 
 struct tdx_sys_info {
@@ -57,6 +58,7 @@ struct tdx_sys_info {
 	struct tdx_sys_info_tdmr tdmr;
 	struct tdx_sys_info_td_ctrl td_ctrl;
 	struct tdx_sys_info_td_conf td_conf;
+	struct tdx_sys_info_ext ext;
 };
 
 #endif

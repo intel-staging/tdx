@@ -1379,6 +1379,18 @@ static __init int init_tdx_module_extensions(void)
 	if (!(tdx_sysinfo.features.tdx_features0 & TDX_FEATURES0_EXT))
 		return 0;
 
+	ret = get_tdx_sys_info_ext(&tdx_sysinfo.ext);
+	if (ret)
+		return ret;
+
+	/*
+	 * ext_required indicates if any add-on features requiring TDX module
+	 * extensions are configured via TDH.SYS.CONFIG. If none, skip the
+	 * initialization.
+	 */
+	if (!tdx_sysinfo.ext.ext_required)
+		return 0;
+
 	ret = tdx_ext_mem_setup();
 	if (ret)
 		return ret;
@@ -1394,6 +1406,9 @@ static __init int init_tdx_module_extensions(void)
 static int reinit_tdx_module_extensions(void)
 {
 	if (!(tdx_sysinfo.features.tdx_features0 & TDX_FEATURES0_EXT))
+		return 0;
+
+	if (!tdx_sysinfo.ext.ext_required)
 		return 0;
 
 	return tdx_ext_init();
