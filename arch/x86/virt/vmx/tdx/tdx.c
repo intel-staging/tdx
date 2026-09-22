@@ -2003,32 +2003,6 @@ u64 tdh_phymem_cache_wb(bool resume)
 }
 EXPORT_SYMBOL_FOR_KVM(tdh_phymem_cache_wb);
 
-static inline u64 mk_keyed_paddr(u16 hkid, kvm_pfn_t pfn)
-{
-	/* KeyID bits are just above the physical address bits. */
-	return PFN_PHYS(pfn) | ((u64)hkid << boot_cpu_data.x86_phys_bits);
-}
-
-u64 tdh_phymem_page_wbinvd_tdr(struct tdx_td *td)
-{
-	struct tdx_module_args args = {};
-
-	args.rcx = mk_keyed_paddr(tdx_global_keyid, page_to_pfn(td->tdr_page));
-
-	return seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
-}
-EXPORT_SYMBOL_FOR_KVM(tdh_phymem_page_wbinvd_tdr);
-
-u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, kvm_pfn_t pfn)
-{
-	struct tdx_module_args args = {};
-
-	args.rcx = mk_keyed_paddr(hkid, pfn);
-
-	return seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
-}
-EXPORT_SYMBOL_FOR_KVM(tdh_phymem_page_wbinvd_hkid);
-
 bool tdx_supports_dynamic_pamt(const struct tdx_sys_info *sysinfo)
 {
 	return sysinfo->features.tdx_features0 & TDX_FEATURES0_DYNAMIC_PAMT;

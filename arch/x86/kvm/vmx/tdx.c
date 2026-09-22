@@ -547,7 +547,6 @@ out:
 static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	u64 err;
 	int i;
 
 	/*
@@ -573,15 +572,6 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 		return;
 
 	if (__tdx_reclaim_page(kvm_tdx->td.tdr_page))
-		return;
-
-	/*
-	 * Use a SEAMCALL to ask the TDX module to flush the cache based on the
-	 * KeyID. TDX module may access TDR while operating on TD (Especially
-	 * when it is reclaiming TDCS).
-	 */
-	err = tdh_phymem_page_wbinvd_tdr(&kvm_tdx->td);
-	if (TDX_BUG_ON(err, TDH_PHYMEM_PAGE_WBINVD, kvm))
 		return;
 
 	tdx_quirk_reset_paddr(page_to_phys(kvm_tdx->td.tdr_page), PAGE_SIZE);
@@ -1869,10 +1859,6 @@ static int tdx_sept_remove_leaf_spte(struct kvm *kvm, gfn_t gfn,
 	err = tdh_do_no_vcpus(tdh_mem_page_remove, kvm, &kvm_tdx->td, gpa,
 			      level, &entry, &level_state);
 	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_REMOVE, entry, level_state, kvm))
-		return -EIO;
-
-	err = tdh_phymem_page_wbinvd_hkid((u16)kvm_tdx->hkid, pfn);
-	if (TDX_BUG_ON(err, TDH_PHYMEM_PAGE_WBINVD, kvm))
 		return -EIO;
 
 	tdx_quirk_reset_paddr(PFN_PHYS(pfn), PAGE_SIZE);

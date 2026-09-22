@@ -43,7 +43,6 @@
 #define TDH_SYS_TDMR_INIT		36
 #define TDH_MEM_TRACK			38
 #define TDH_PHYMEM_CACHE_WB		40
-#define TDH_PHYMEM_PAGE_WBINVD		41
 #define TDH_VP_WR			43
 #define TDH_SYS_CONFIG			45
 #define TDH_SYS_SHUTDOWN		52
