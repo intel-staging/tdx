@@ -1,0 +1,186 @@
+# SPDX-License-Identifier: ((GPL-2.0 WITH Linux-syscall-note) OR BSD-3-Clause)
+#
+---
+name: device-evidence
+protocol: genetlink
+uapi-header: linux/device-evidence.h
+doc: Device evidence retrieval over generic netlink
+
+definitions:
+  -
+    type: const
+    name: max-object-size
+    value: 0x01000000
+  -
+    type: const
+    name: max-nonce-size
+    value: 32
+  -
+    name: type
+    type: enum
+    doc: Device security evidence objects
+    render-max: true
+    entries:
+      -
+        name: cert0
+        doc: SPDM certificate chain from device slot0
+      -
+        name: cert1
+        doc: SPDM certificate chain from device slot1
+      -
+        name: cert2
+        doc: SPDM certificate chain from device slot2
+      -
+        name: cert3
+        doc: SPDM certificate chain from device slot3
+      -
+        name: cert4
+        doc: SPDM certificate chain from device slot4
+      -
+        name: cert5
+        doc: SPDM certificate chain from device slot5
+      -
+        name: cert6
+        doc: SPDM certificate chain from device slot6
+      -
+        name: cert7
+        doc: SPDM certificate chain from device slot7
+      -
+        name: vca
+        doc: |
+          SPDM version, capabilities, and algorithms transcript
+          negotiated at session establishment. An implementation may not
+          provide this separately and instead include it in the
+          measurements transcript.
+      -
+        name: measurements
+        doc: SPDM GET_MEASUREMENTS response
+      -
+        name: report
+        doc: |
+          A bus that implements a device interface security protocol
+          like TDISP may convey an interface report that details
+          interface settings and capabilities.
+  -
+    name: type-flag
+    type: flags
+    doc: Device security evidence request flags
+    render-max: true
+    # NOTE! these values must match the type enum name and order
+    entries:
+      -
+        name: cert0
+      -
+        name: cert1
+      -
+        name: cert2
+      -
+        name: cert3
+      -
+        name: cert4
+      -
+        name: cert5
+      -
+        name: cert6
+      -
+        name: cert7
+      -
+        name: vca
+      -
+        name: measurements
+      -
+        name: report
+  -
+    name: flag
+    type: flags
+    render-max: true
+    doc: Flags to control evidence retrieval
+    entries:
+      -
+        name: digest
+        doc: |
+          Request a secure hash of objects like vca and measurements.
+          The expectation is that this digest is produced by a responder
+          within the TCB like a platform TSM. It validates a blob that
+          may have traversed a transport without integrity protections.
+
+attribute-sets:
+  -
+    name: object
+    attributes:
+      -
+        name: type
+        type: u32
+        doc: evidence type-id
+      -
+        name: type-mask
+        type: u32
+        doc: evidence types as a flag mask
+      -
+        name: flags
+        type: u32
+        doc: evidence modifier flags like 'request object digest'
+      -
+        name: subsys
+        type: string
+        doc: device subsystem name (e.g. bus or class name)
+      -
+        name: dev-name
+        type: string
+        doc: device name
+      -
+        name: nonce
+        type: binary
+        checks:
+          max-len: max-nonce-size
+      -
+        name: generation
+        type: u32
+        doc: detect local threads racing evidence refresh
+      -
+        name: count
+        type: u64
+        doc: TSM, if present, observed count of evidence refresh events
+      -
+        name: length
+        type: u32
+        checks:
+          max: max-object-size
+        doc: |
+          Final size of 'val' blob after all messages received.
+      -
+        name: val
+        type: binary
+        multi-attr: true
+        bloblen: length
+        doc: |
+          Ordered evidence object value chunk. Large evidence objects
+          may be split over several dump reply messages up to 'length'.
+          'length' is transmitted before the first chunk.
+
+operations:
+  list:
+    -
+      name: read
+      doc: |
+        Read device evidence objects of a given type mask. The dump reply
+        reports the total value length before val attributes fill the evidence
+        object, possibly across multiple messages.
+      attribute-set: object
+      flags: [admin-perm]
+      dump:
+        pre: device-evidence-nl-read-pre
+        post: device-evidence-nl-read-post
+        request:
+          attributes:
+            - type-mask
+            - flags
+            - subsys
+            - dev-name
+            - nonce
+        reply:
+          attributes:
+            - type
+            - generation
+            - length
+            - val

@@ -27791,8 +27791,12 @@ S:	Maintained
 F:	Documentation/ABI/testing/configfs-tsm-report
 F:	Documentation/driver-api/coco/
 F:	Documentation/driver-api/pci/tsm.rst
+F:	Documentation/netlink/specs/device-evidence.yaml
+F:	drivers/base/*evidence*
 F:	drivers/pci/tsm.c
 F:	drivers/virt/coco/guest/
+F:	include/uapi/linux/device-evidence.h
+F:	include/linux/device/evidence.h
 F:	include/linux/*tsm*.h
 F:	samples/tsm-mr/
 

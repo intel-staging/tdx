@@ -190,6 +190,10 @@ config HMEM_REPORTING
 	  Enable reporting for heterogeneous memory access attributes under
 	  their non-uniform memory nodes.
 
+config DEVICE_EVIDENCE
+	bool
+	depends on NET
+
 source "drivers/base/test/Kconfig"
 
 config SYS_HYPERVISOR
