@@ -79,7 +79,7 @@ static inline void tdcall(u64 fn, struct tdx_module_args *args)
 }
 
 /* Read TD-scoped metadata */
-static inline u64 tdg_vm_rd(u64 field, u64 *value)
+u64 tdg_vm_rd(u64 field, u64 *value)
 {
 	struct tdx_module_args args = {
 		.rdx = field,
@@ -91,6 +91,7 @@ static inline u64 tdg_vm_rd(u64 field, u64 *value)
 
 	return ret;
 }
+EXPORT_SYMBOL_FOR_MODULES(tdg_vm_rd, "tdx-guest");
 
 /* Write TD-scoped metadata */
 static inline u64 tdg_vm_wr(u64 field, u64 value, u64 mask)

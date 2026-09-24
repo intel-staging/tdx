@@ -77,6 +77,8 @@ void tdx_halt(void);
 
 bool tdx_early_handle_ve(struct pt_regs *regs);
 
+u64 tdg_vm_rd(u64 field, u64 *value);
+
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
 int tdx_mcall_extend_rtmr(u8 index, u8 *data);
