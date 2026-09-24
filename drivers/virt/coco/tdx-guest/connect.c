@@ -241,6 +241,67 @@ static u8 *tdx_tdi_get_report(struct tdx_devsec *tdevsec, u32 *report_sz)
 	return report;
 }
 
+static struct tdx_devsec *tdx_tdi_mmio_setup(struct tdx_devsec *tdevsec)
+{
+	struct pci_tsm_devsec *devsec_tsm = &tdevsec->pci;
+	struct pci_dev *pdev = devsec_tsm->base_tsm.pdev;
+	int rc;
+
+	struct pci_tsm_mmio *mmio __free(kfree) = pci_tsm_mmio_alloc(pdev, TDISP_OFFSET_RELATIVE);
+	if (!mmio)
+		return ERR_PTR(-EINVAL);
+
+	rc = pci_tsm_mmio_setup(pdev, mmio);
+	if (rc)
+		return ERR_PTR(rc);
+
+	devsec_tsm->mmio = no_free_ptr(mmio);
+	return tdevsec;
+}
+
+static void tdx_tdi_mmio_teardown(struct tdx_devsec *tdevsec)
+{
+	struct pci_tsm_devsec *devsec_tsm = &tdevsec->pci;
+
+	if (!devsec_tsm->mmio)
+		return;
+
+	pci_tsm_mmio_teardown(devsec_tsm->mmio);
+	kfree(devsec_tsm->mmio);
+	devsec_tsm->mmio = NULL;
+}
+DEFINE_FREE(tdx_tdi_mmio_teardown, struct tdx_devsec *,
+	if (!IS_ERR_OR_NULL(_T)) tdx_tdi_mmio_teardown(_T))
+
+static int tdx_tdi_mmio_accept(struct tdx_devsec *tdevsec)
+{
+	struct pci_dev *pdev = tdevsec->pci.base_tsm.pdev;
+	const struct pci_tsm_mmio *mmio;
+	u32 i;
+
+	mmio = tdevsec->pci.mmio;
+
+	for (i = 0; i < mmio->nr; i++) {
+		const struct pci_tsm_mmio_entry *entry = &mmio->mmio[i];
+		u32 pages = resource_size(&entry->res) >> PAGE_SHIFT;
+		phys_addr_t gpa = entry->res.start;
+		int ret;
+
+		pci_dbg(pdev, "accept MMIO entry %d %pR gpa=0x%llx\n",
+			entry->index, &entry->res, gpa);
+
+		/* Accept the whole range */
+		ret = tdx_mcall_mmio_accept(pci_dev_id(pdev), entry->index, 0, pages, gpa);
+		if (ret) {
+			pci_err(pdev, "Failed to accept MMIO entry %d (gpa=0x%llx), ret=%d\n",
+				entry->index, gpa, ret);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
 static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *pdev)
 {
 	struct device_evidence_object *tsm_report;
@@ -299,6 +360,8 @@ static void tdx_devsec_unlock(struct pci_tsm *tsm)
 	if (WARN_ON(tdx_tdi_unbind_dev(tdevsec)))
 		return;
 
+	tdx_tdi_mmio_teardown(tdevsec);
+
 	kfree(evidence->obj[DEVICE_EVIDENCE_TYPE_REPORT].data);
 	kfree(evidence);
 	kfree(tdevsec);
@@ -306,6 +369,18 @@ static void tdx_devsec_unlock(struct pci_tsm *tsm)
 
 static int tdx_devsec_run(struct pci_dev *pdev)
 {
+	struct tdx_devsec *tdevsec = to_tdx_devsec(pdev->tsm);
+	int ret;
+
+	struct tdx_devsec *tdevsec_mmio __free(tdx_tdi_mmio_teardown) =
+		tdx_tdi_mmio_setup(tdevsec);
+	if (IS_ERR(tdevsec_mmio))
+		return PTR_ERR(tdevsec_mmio);
+
+	ret = tdx_tdi_mmio_accept(tdevsec);
+	if (ret)
+		return ret;
+
 	return -EOPNOTSUPP;
 }
 
