@@ -136,3 +136,31 @@ int tdx_mcall_tdi_start(u64 func_id, u64 exp_bind_session)
 	return tdx_mcall_tdi_to_errno(ret);
 }
 EXPORT_SYMBOL_FOR_MODULES(tdx_mcall_tdi_start, "tdx-guest");
+
+/**
+ * tdx_mcall_dmar_accept() - Accept PASID table entry of a TDI instance
+ * @func_id: Function identifier specifying the TDI instance
+ * @target: DMAR target, 0 for non-partitioned TD or L1, 1-3 for L2 VM1-VM3,
+ *          other value reserved
+ *
+ * Update the PASID table entry of the TDI to mark the DMA Remapping (DMAR)
+ * state as present, allowing DMA access to the TD private memory.
+ *
+ * Return 0 on success, -ENXIO for invalid operands, -EBUSY for busy operation,
+ * -ENODEV for TDI not present or invalid metadata, or -EIO on other TDCALL failures.
+ */
+int tdx_mcall_dmar_accept(u64 func_id, u64 target)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = target,
+	};
+	u64 ret;
+
+	ret = __tdcall_saved(TDG_DMAR_ACCEPT, &args);
+	if (!ret)
+		return 0;
+
+	return tdx_mcall_tdi_to_errno(ret);
+}
+EXPORT_SYMBOL_FOR_MODULES(tdx_mcall_dmar_accept, "tdx-guest");

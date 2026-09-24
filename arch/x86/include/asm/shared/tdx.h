@@ -22,6 +22,7 @@
 #define TDG_VM_WR			8
 #define TDG_TDI_READ			67
 #define TDG_TDI_START			68
+#define TDG_DMAR_ACCEPT			70
 #define TDG_MMIO_ACCEPT			71
 
 /* TDX TD attributes */

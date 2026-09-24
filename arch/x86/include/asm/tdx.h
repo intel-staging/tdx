@@ -157,6 +157,7 @@ u64 tdx_hcall_tdcm(u16 devid, void *buf, size_t size, u8 vector);
 int tdx_mcall_tdi_read(u64 func_id, u64 field, u64 *value);
 int tdx_mcall_mmio_accept(u64 func_id, u64 index, u32 pg_offset, u32 page_cnt, phys_addr_t gpa);
 int tdx_mcall_tdi_start(u64 func_id, u64 exp_bind_session);
+int tdx_mcall_dmar_accept(u64 func_id, u64 target);
 #endif
 
 void __init tdx_dump_attributes(u64 td_attr);
