@@ -690,6 +690,8 @@ enum struct_device_flags {
  * @removable:  Whether the device can be removed from the system. This
  *              should be set by the subsystem / bus driver that discovered
  *              the device.
+ * @bus_trust: Device's initial / prior to device_add() trust level.
+ *
  * @flags:	DEV_FLAG_XXX flags. Use atomic bitfield operations to modify.
  *
  * At the lowest level, every device in a Linux system is represented by an
@@ -793,6 +795,7 @@ struct device {
 	struct device_physical_location *physical_location;
 
 	enum device_removable	removable;
+	enum device_trust	bus_trust;
 
 	DECLARE_BITMAP(flags, DEV_FLAG_COUNT);
 };

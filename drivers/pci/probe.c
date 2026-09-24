@@ -6,6 +6,7 @@
 #include <linux/array_size.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
+#include <linux/device/trust.h>
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/msi.h>
@@ -1737,20 +1738,23 @@ static void set_pcie_untrusted(struct pci_dev *dev)
 {
 	struct pci_dev *parent = pci_upstream_bridge(dev);
 
+	dev->dev.bus_trust = DEVICE_DEFAULT_TRUST;
 	if (!parent)
 		return;
 	/*
 	 * If the upstream bridge is untrusted we treat this device as
 	 * untrusted as well.
 	 */
-	if (parent->untrusted) {
-		dev->untrusted = true;
+	if (pci_untrusted(parent)) {
+		dev->dev.bus_trust =
+			min(dev->dev.bus_trust, parent->dev.bus_trust);
 		return;
 	}
 
 	if (arch_pci_dev_is_removable(dev)) {
 		pci_dbg(dev, "marking as untrusted\n");
-		dev->untrusted = true;
+		dev->dev.bus_trust =
+			min(dev->dev.bus_trust, DEVICE_TRUST_ADVERSARY);
 	}
 }
 

@@ -275,6 +275,14 @@ config DEVICE_TRUST_NONE
 	  possible, the device is blocked by an IOMMU from accessing
 	  assets.
 
+config DEVICE_TRUST_ADVERSARY
+	bool "Adversary"
+	help
+	  Device is allowed to bind. Bus, IOMMU, and driver layers may
+	  react to this trust level by disabling access validation
+	  bypass mechanisms like PCI ATS. When device is unbound from a
+	  driver the device is blocked by an IOMMU where possible.
+
 config DEVICE_TRUST_AUTO
 	bool "Auto"
 	help
@@ -300,6 +308,11 @@ config BUILTIN_DEVICE_TRUST_AUTO
 	  Typical historical driver model, devices eagerly attempt to attach to
 	  a driver and deploy all available mechanisms to allow performant
 	  direct memory access This trust level does not grant TCB privileges.
+
+config BUILTIN_DEVICE_TRUST_ADVERSARY
+	bool "Adversary"
+	help
+	  Deploy mitigations in the IOMMU layer and driver to limit access.
 
 endchoice
 

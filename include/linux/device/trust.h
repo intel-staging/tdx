@@ -11,30 +11,40 @@
  *
  * @DEVICE_TRUST_UNSET: Unregistered device object with no current bus
  * @DEVICE_TRUST_NONE: Blocked when idle, cannot bind
+ * @DEVICE_TRUST_ADVERSARY: Blocked when idle, constrained when active.
  * @DEVICE_TRUST_AUTO: All typical privileges granted
+ *
+ * Devices flagged as adversarial are the ones that can potentially
+ * execute DMA attacks and similar. They are typically connected through
+ * external ports such as Thunderbolt but not limited to that. When an
+ * IOMMU is enabled they should be getting full mappings to make sure
+ * they cannot access arbitrary memory.
  */
 enum device_trust {
 	DEVICE_TRUST_UNSET,
 	DEVICE_TRUST_NONE,
+	DEVICE_TRUST_ADVERSARY,
 	DEVICE_TRUST_AUTO,
 };
 
-#define DEVICE_DEFAULT_TRUST                                        \
-	(IS_ENABLED(CONFIG_DEVICE_TRUST_NONE) ? DEVICE_TRUST_NONE : \
-						DEVICE_TRUST_AUTO)
+#define DEVICE_DEFAULT_TRUST \
+	(IS_ENABLED(CONFIG_DEVICE_TRUST_NONE)      ? DEVICE_TRUST_NONE      : \
+	 IS_ENABLED(CONFIG_DEVICE_TRUST_ADVERSARY) ? DEVICE_TRUST_ADVERSARY : \
+	 DEVICE_TRUST_AUTO)
 
 struct device;
 struct device_driver;
 
 #ifdef CONFIG_DEVICE_TRUST
+bool device_untrusted(struct device *dev);
 void module_driver_trust(struct module *mod, const char *val);
-void module_driver_trust_init(struct module *mod, bool distrust);
+void module_driver_trust_init(struct module *mod, bool require_trust);
 #else
 static inline void module_driver_trust(struct module *mod, const char *val)
 {
 	pr_warn("module: %s: trust= support disabled\n", mod->name);
 }
-static inline void module_driver_trust_init(struct module *mod, bool distrust)
+static inline void module_driver_trust_init(struct module *mod, bool require_trust)
 {
 }
 #endif

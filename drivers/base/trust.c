@@ -6,15 +6,28 @@
 #include <linux/module.h>
 #include "base.h"
 
+/* If the bus did not initialize trust, set a default */
 void device_initialize_trust(struct device *dev)
 {
+	dev->p->trust = dev->bus_trust;
 	if (dev->p->trust == DEVICE_TRUST_UNSET)
 		dev->p->trust = DEVICE_DEFAULT_TRUST;
+}
+
+/*
+ * ->bus_trust is evaluated / manipulated prior to device_add() and
+ *  synced with dev->p->trust post device_add() under device_lock().
+ */
+bool device_untrusted(struct device *dev)
+{
+	return dev->bus_trust && dev->bus_trust <= DEVICE_TRUST_ADVERSARY;
 }
 
 /* Driver trust policy requires modules, builtin drivers always attach */
 static enum device_trust builtin_driver_trust(void)
 {
+	if (IS_ENABLED(CONFIG_BUILTIN_DEVICE_TRUST_ADVERSARY))
+		return DEVICE_TRUST_ADVERSARY;
 	return DEVICE_TRUST_AUTO;
 }
 
@@ -30,18 +43,23 @@ static enum device_trust driver_trust(struct module *mod)
  * policy on trusting devices it attaches, update the device's trust
  * level from that policy. Trust privileges beyond driver bind are
  * realized in a bus's ->dma_configure().
+ *
+ * Reflect the operational trust level back to the public indicator.
  */
 bool device_trust_bind(const struct device_driver *drv, struct device *dev)
 {
 	enum device_trust drv_trust = driver_trust(drv->owner);
 
-	if (drv_trust != DEVICE_TRUST_UNSET)
+	if (drv_trust != DEVICE_TRUST_UNSET) {
 		dev->p->trust = drv_trust;
+		dev->bus_trust = drv_trust;
+	}
 	return dev->p->trust > DEVICE_TRUST_NONE;
 }
 
 static const char * const device_trust_names[] = {
 	[DEVICE_TRUST_NONE]	 = "none",
+	[DEVICE_TRUST_ADVERSARY] = "adversary",
 	[DEVICE_TRUST_AUTO]	 = "auto",
 };
 

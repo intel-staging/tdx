@@ -490,14 +490,6 @@ struct pci_dev {
 	unsigned int	is_thunderbolt:1;	/* Thunderbolt controller */
 	unsigned int	is_cxl:1;               /* Compute Express Link (CXL) */
 	/*
-	 * Devices marked being untrusted are the ones that can potentially
-	 * execute DMA attacks and similar. They are typically connected
-	 * through external ports such as Thunderbolt but not limited to
-	 * that. When an IOMMU is enabled they should be getting full
-	 * mappings to make sure they cannot access arbitrary memory.
-	 */
-	unsigned int	untrusted:1;
-	/*
 	 * Info from the platform, e.g., ACPI or device tree, may mark a
 	 * device as "external-facing".  An external-facing device is
 	 * itself internal but devices downstream from it are external.
@@ -817,6 +809,11 @@ static inline bool pci_is_display(struct pci_dev *pdev)
 static inline bool pcie_is_cxl(struct pci_dev *pci_dev)
 {
 	return pci_dev->is_cxl;
+}
+
+static inline bool pci_untrusted(struct pci_dev *pdev)
+{
+	return device_untrusted(&pdev->dev);
 }
 
 #define for_each_pci_bridge(dev, bus)				\

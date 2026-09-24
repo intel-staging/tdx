@@ -22,6 +22,7 @@ menuconfig PCI
 	bool "PCI support"
 	depends on HAVE_PCI
 	depends on MMU
+	select DEVICE_TRUST
 	help
 	  This option enables support for the PCI local bus, including
 	  support for PCI-X and the foundations for PCI Express support.

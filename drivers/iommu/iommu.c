@@ -1901,7 +1901,7 @@ static int iommu_get_default_domain_type(struct iommu_group *group,
 		driver_type = iommu_get_def_domain_type(group, gdev->dev,
 							driver_type);
 
-		if (dev_is_pci(gdev->dev) && to_pci_dev(gdev->dev)->untrusted) {
+		if (device_untrusted(gdev->dev)) {
 			/*
 			 * No ARM32 using systems will set untrusted, it cannot
 			 * work.
