@@ -1,0 +1,15 @@
+What:		/sys/bus/faux/devices/{devsec_link_tsm,devsec_tsm}
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(DIR) The devsec_link_tsm and devsec_tsm faux devices test the
+		kernel's ABIs and flows that support PCIe Trusted Device
+		Interface Security Protocol (TDISP). The devsec_link_tsm device
+		simulates a "host" TSM that establishes an SPDM session and link
+		security (PCIe IDE). The devsec_tsm device simulates a "guest"
+		TSM that implements the lock+accept flows.
+
+What:
+/sys/bus/faux/devices/devsec_link_tsm/{bind,unbind}
+Contact:	linux-coco@lists.linux.dev
+Description:
+
