@@ -85,6 +85,10 @@ int tdx_mcall_extend_rtmr(u8 index, u8 *data);
 
 u64 tdx_hcall_get_quote(u8 *buf, size_t size);
 
+#ifdef CONFIG_TDX_CONNECT_GUEST
+u64 tdx_hcall_tdcm(u16 devid, void *buf, size_t size, u8 vector);
+#endif
+
 void __init tdx_dump_attributes(u64 td_attr);
 void __init tdx_dump_td_ctls(u64 td_ctls);
 
