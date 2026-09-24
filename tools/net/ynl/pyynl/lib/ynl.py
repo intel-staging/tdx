@@ -1011,6 +1011,47 @@ class YnlFamily(SpecFamily):
         else:
             rsp[name] = [decoded]
 
+    def _blob_fill(self, buf, off, chunks, name):
+        for chunk in chunks:
+            end = off + len(chunk)
+            if end > len(buf):
+                raise YnlException(f"Blob '{name}' data exceeds reported length")
+            buf[off:end] = chunk
+            off = end
+        return off
+
+    def _blob_init(self, op, rsp, blob_attrs):
+        """
+        Start a new blob object. Preallocate each blob payload using the
+        length carried ahead of the data and copy in the first chunk(s).
+        Return the per-attribute write offsets for any following messages.
+        """
+        offsets = {}
+        for name in blob_attrs:
+            if name not in rsp:
+                continue
+            length = rsp.get(op.attr_set[name].bloblen, 0)
+            buf = bytearray(length)
+            offsets[name] = self._blob_fill(buf, 0, rsp[name], name)
+            rsp[name] = buf
+        return offsets
+
+    def _blob_extend(self, rsp, update, blob_attrs, offsets):
+        """
+        Continue filling the previous object's blob(s) when the current
+        message carries only blob continuation attributes.
+        """
+        if any(name in rsp and name not in blob_attrs for name in update):
+            return False
+
+        for name, value in update.items():
+            if name in blob_attrs and name in rsp:
+                offsets[name] = self._blob_fill(rsp[name], offsets.get(name, 0),
+                                                value, name)
+            else:
+                rsp[name] = value
+        return True
+
     def _resolve_selector(self, attr_spec, search_attrs):
         sub_msg = attr_spec.sub_message
         if sub_msg not in self.sub_msgs:
@@ -1369,7 +1410,10 @@ class YnlFamily(SpecFamily):
         for (method, vals, flags) in ops:
             op = self.ops[method]
             msg = self._encode_message(op, vals, flags, req_seq)
-            reqs_by_seq[req_seq] = (op, vals, msg, flags)
+            blob_attrs = None
+            if Netlink.NLM_F_DUMP in flags:
+                blob_attrs = op.dump_blob_attrs or None
+            reqs_by_seq[req_seq] = (op, vals, msg, flags, blob_attrs)
             payload += msg
             req_seq += 1
 
@@ -1378,6 +1422,7 @@ class YnlFamily(SpecFamily):
         done = False
         rsp = []
         op_rsp = []
+        blob_off = {}
         while not done:
             reply, ancdata = self._recvmsg()
             nsid = self._decode_nsid(ancdata)
@@ -1385,13 +1430,14 @@ class YnlFamily(SpecFamily):
             self._recv_dbg_print(reply, nms)
             for nl_msg in nms:
                 if nl_msg.nl_seq in reqs_by_seq:
-                    (op, vals, req_msg, req_flags) = reqs_by_seq[nl_msg.nl_seq]
+                    (op, vals, req_msg, req_flags, blob_attrs) = reqs_by_seq[nl_msg.nl_seq]
                     if nl_msg.extack:
                         nl_msg.annotate_extack(op.attr_set)
                         self._decode_extack(req_msg, op, nl_msg.extack, vals)
                 else:
                     op = None
                     req_flags = []
+                    blob_attrs = None
 
                 if nl_msg.error:
                     raise NlError(nl_msg)
@@ -1401,6 +1447,11 @@ class YnlFamily(SpecFamily):
                         print(nl_msg)
 
                     if Netlink.NLM_F_DUMP in req_flags:
+                        if blob_attrs:
+                            for obj in op_rsp:
+                                for name in blob_attrs:
+                                    if isinstance(obj.get(name), bytearray):
+                                        obj[name] = bytes(obj[name])
                         rsp.append(op_rsp)
                     elif not op_rsp:
                         rsp.append(None)
@@ -1427,6 +1478,13 @@ class YnlFamily(SpecFamily):
                 rsp_msg = self._decode(decoded.raw_attrs, op.attr_set.name)
                 if op.fixed_header:
                     rsp_msg.update(self._decode_struct(decoded.raw, op.fixed_header))
+
+                if blob_attrs:
+                    if op_rsp and self._blob_extend(op_rsp[-1], rsp_msg,
+                                                    blob_attrs, blob_off):
+                        continue
+                    blob_off = self._blob_init(op, rsp_msg, blob_attrs)
+
                 op_rsp.append(rsp_msg)
 
         return rsp
