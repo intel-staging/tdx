@@ -10,3 +10,18 @@ config TDX_GUEST_DRIVER
 
 	  To compile this driver as module, choose M here. The module will
 	  be called tdx-guest.
+
+config TDX_CONNECT_GUEST
+	bool "Intel TDX Connect Guest Support"
+	depends on TDX_GUEST_DRIVER
+	depends on PCI_TSM
+	default y
+	help
+	  Support Trust Device Interface (TDI) feature enumeration,
+	  validation, and activation within an Intel TDX guest.
+
+	  This option enables the guest kernel to establish secure,
+	  isolated connections with trusted devices assigned to the TD,
+	  validating MMIO maps and authorizing DMA remapping tables.
+
+	  If unsure, say Y.

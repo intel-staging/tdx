@@ -25,6 +25,8 @@
 #include <asm/cpu_device_id.h>
 #include <asm/tdx.h>
 
+#include "tdx-guest.h"
+
 /* TDREPORT buffer */
 static u8 *tdx_report_buf;
 
@@ -427,6 +429,10 @@ static int __init tdx_guest_init(void)
 	ret = tsm_report_register(&tdx_tsm_ops, NULL);
 	if (ret)
 		goto free_quote;
+
+	ret = tdx_connect_init(tdx_misc_dev.this_device);
+	if (ret)
+		pr_warn("Failed to enable TDX Connect: %d\n", ret);
 
 	return 0;
 
