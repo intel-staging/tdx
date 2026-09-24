@@ -467,6 +467,14 @@ int walk_iomem_res_desc(unsigned long desc, unsigned long flags, u64 start,
 }
 EXPORT_SYMBOL_GPL(walk_iomem_res_desc);
 
+int walk_encrypted_iomem_res(u64 start, u64 end, void *arg,
+			     int (*func)(struct resource *, void *))
+{
+	return walk_res_desc(&encrypted_iomem_resource, start, end, IORESOURCE_MEM,
+			     IORES_DESC_ENCRYPTED, arg, func);
+}
+EXPORT_SYMBOL_GPL(walk_encrypted_iomem_res);
+
 /*
  * In support of device drivers claiming Soft Reserved resources, walk the Soft
  * Reserved resource deferral tree.

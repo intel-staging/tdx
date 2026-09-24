@@ -176,8 +176,7 @@ static void __ioremap_check_mem(resource_size_t addr, unsigned long size,
 	 * separate search
 	 */
 	desc->encrypt_size = 0;
-	walk_iomem_res_desc(IORES_DESC_ENCRYPTED, IORESOURCE_MEM, start, end,
-			    desc, __ioremap_collect_map_flags);
+	walk_encrypted_iomem_res(start, end, desc, __ioremap_collect_map_flags);
 
 	__ioremap_check_other(addr, desc);
 }

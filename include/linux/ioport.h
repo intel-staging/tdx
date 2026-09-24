@@ -443,6 +443,9 @@ walk_system_ram_res_rev(u64 start, u64 end, void *arg,
 extern int
 walk_iomem_res_desc(unsigned long desc, unsigned long flags, u64 start, u64 end,
 		    void *arg, int (*func)(struct resource *, void *));
+extern int
+walk_encrypted_iomem_res(u64 start, u64 end, void *arg,
+			 int (*func)(struct resource *, void *));
 extern int walk_soft_reserve_res(u64 start, u64 end, void *arg,
 				 int (*func)(struct resource *, void *));
 extern int
