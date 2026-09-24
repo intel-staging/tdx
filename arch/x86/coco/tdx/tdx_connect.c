@@ -71,3 +71,41 @@ int tdx_mcall_tdi_read(u64 func_id, u64 field, u64 *value)
 	return tdx_mcall_tdi_to_errno(ret);
 }
 EXPORT_SYMBOL_FOR_MODULES(tdx_mcall_tdi_read, "tdx-guest");
+
+/**
+ * tdx_mcall_mmio_accept() - Accept a pending private MMIO mapping of a
+ *                           Trust Device Interface (TDI) instance
+ * @func_id: Function identifier specifying the TDI instance
+ * @index: MMIO range index from the Device Interface Report
+ * @pg_offset: Range offset to start accepting the subrange from, in pages
+ * @page_cnt: Count of pages to accept
+ * @gpa: GPA base address the subrange mapped to
+ *
+ * Verify and accept a pending private MMIO mapping. Upon success, the MMIO
+ * pages are set as mapped in the TDX module.
+ *
+ * Return 0 on success, -EINVAL for unaligned GPA, -ENXIO for invalid operands,
+ * -EBUSY for busy operation, -ENODEV for TDI not present or invalid metadata,
+ * or -EIO on other TDCALL failures.
+ *
+ */
+int tdx_mcall_mmio_accept(u64 func_id, u64 index, u32 pg_offset, u32 page_cnt, phys_addr_t gpa)
+{
+	struct tdx_module_args args = {
+		.rcx = gpa | TDX_PS_4K,
+		.rdx = index,
+		.r8 = func_id,
+		.r9 = (u64)pg_offset << 32 | page_cnt,
+	};
+	u64 ret;
+
+	if (!IS_ALIGNED(gpa, PAGE_SIZE))
+		return -EINVAL;
+
+	ret = __tdcall_ret(TDG_MMIO_ACCEPT, &args);
+	if (!ret)
+		return 0;
+
+	return tdx_mcall_tdi_to_errno(ret);
+}
+EXPORT_SYMBOL_FOR_MODULES(tdx_mcall_mmio_accept, "tdx-guest");
