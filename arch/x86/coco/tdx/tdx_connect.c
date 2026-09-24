@@ -109,3 +109,30 @@ int tdx_mcall_mmio_accept(u64 func_id, u64 index, u32 pg_offset, u32 page_cnt, p
 	return tdx_mcall_tdi_to_errno(ret);
 }
 EXPORT_SYMBOL_FOR_MODULES(tdx_mcall_mmio_accept, "tdx-guest");
+
+/**
+ * tdx_mcall_tdi_start() - Authorize TDX module to start the TDI instance
+ * @func_id: Function identifier specifying the TDI instance
+ * @exp_bind_session: Expected bind session ID
+ *
+ * Signal TDX module that TD is ready to start TDI. Upon success, TDX module
+ * allows host to initiate TDI via TDH.TDI.START seamcall.
+ *
+ * Return 0 on success, -ENXIO for invalid operands, -EBUSY for busy operation,
+ * -ENODEV for TDI not present or invalid metadata, or -EIO on other TDCALL failures.
+ */
+int tdx_mcall_tdi_start(u64 func_id, u64 exp_bind_session)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = exp_bind_session,
+	};
+	u64 ret;
+
+	ret = __tdcall(TDG_TDI_START, &args);
+	if (!ret)
+		return 0;
+
+	return tdx_mcall_tdi_to_errno(ret);
+}
+EXPORT_SYMBOL_FOR_MODULES(tdx_mcall_tdi_start, "tdx-guest");
