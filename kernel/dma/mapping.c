@@ -501,6 +501,27 @@ static void dma_setup_need_sync(struct device *dev)
 static inline void dma_setup_need_sync(struct device *dev) { }
 #endif /* !CONFIG_DMA_NEED_SYNC */
 
+/**
+ * dma_set_cc_private - Set whether @dev can DMA to private memory
+ * @dev: device whose confidential-computing DMA access is being updated
+ * @private: whether the device can DMA to private memory
+ *
+ * Called when a device is known to be able to DMA to private memory.
+ * For architected CPU integrated devices their kernel drivers will
+ * self-accept using a driver specific validation. Other devices will
+ * have a userspace managed process.
+ *
+ * DMA mapping must not be active when this flag is changed. For CPU
+ * integrated devices the driver should self accept early during probe
+ * after validation. Other devices have this flag set automatically
+ * before probing.
+ */
+void dma_set_cc_private(struct device *dev, bool private)
+{
+	dev_assign_dma_cc_private(dev, private);
+}
+EXPORT_SYMBOL_GPL(dma_set_cc_private);
+
 /*
  * The whole dma_get_sgtable() idea is fundamentally unsafe - it seems
  * that the intention is to allow exporting memory allocated via the
