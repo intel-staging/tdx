@@ -20,6 +20,13 @@ static const struct nla_policy device_evidence_read_nl_policy[DEVICE_EVIDENCE_A_
 	[DEVICE_EVIDENCE_A_OBJECT_NONCE] = NLA_POLICY_MAX_LEN(DEVICE_EVIDENCE_MAX_NONCE_SIZE),
 };
 
+/* DEVICE_EVIDENCE_CMD_VALIDATE - do */
+static const struct nla_policy device_evidence_validate_nl_policy[DEVICE_EVIDENCE_A_OBJECT_GENERATION + 1] = {
+	[DEVICE_EVIDENCE_A_OBJECT_SUBSYS] = { .type = NLA_NUL_STRING, },
+	[DEVICE_EVIDENCE_A_OBJECT_DEV_NAME] = { .type = NLA_NUL_STRING, },
+	[DEVICE_EVIDENCE_A_OBJECT_GENERATION] = { .type = NLA_U32, },
+};
+
 /* Ops table for device_evidence */
 static const struct genl_split_ops device_evidence_nl_ops[] = {
 	{
@@ -30,6 +37,13 @@ static const struct genl_split_ops device_evidence_nl_ops[] = {
 		.policy		= device_evidence_read_nl_policy,
 		.maxattr	= DEVICE_EVIDENCE_A_OBJECT_NONCE,
 		.flags		= GENL_ADMIN_PERM | GENL_CMD_CAP_DUMP,
+	},
+	{
+		.cmd		= DEVICE_EVIDENCE_CMD_VALIDATE,
+		.doit		= device_evidence_nl_validate_doit,
+		.policy		= device_evidence_validate_nl_policy,
+		.maxattr	= DEVICE_EVIDENCE_A_OBJECT_GENERATION,
+		.flags		= GENL_ADMIN_PERM | GENL_CMD_CAP_DO,
 	},
 };
 

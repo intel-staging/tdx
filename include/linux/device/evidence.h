@@ -29,15 +29,18 @@ struct device_evidence_object {
  * struct device_evidence - Retrieved device evidence
  * @slot: certificate slot used by a link TSM for connect
  * @generation: refresh_evidence() invocation detection
+ * @validated_generation: generation last accepted by userspace via "validate"
  * @digest_algo: payload size of DEVICE_EVIDENCE_FLAG_DIGEST requests
  * @lock: synchronize dumps vs refresh_evidence()
  * @obj: array of evidence objects a TSM might populate
  *
- * An increment of @generation causes in flight dumps to fail with -EAGAIN.
+ * An increment of @generation causes in flight dumps to fail with -EAGAIN and
+ * implicitly revokes a prior userspace validation.
  */
 struct device_evidence {
 	int slot;
 	u32 generation;
+	u32 validated_generation;
 	enum hash_algo digest_algo;
 	struct rw_semaphore lock;
 	struct device_evidence_object obj[DEVICE_EVIDENCE_TYPE_MAX + 1];

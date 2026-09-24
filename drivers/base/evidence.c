@@ -446,6 +446,48 @@ int device_evidence_nl_read_dumpit(struct sk_buff *skb,
 	return device_evidence_read(skb, cb);
 }
 
+int device_evidence_nl_validate_doit(struct sk_buff *skb,
+				     struct genl_info *info)
+{
+	const struct device_evidence_ops *ops;
+	struct device_evidence *evidence;
+	struct device_evidence_ctx _ctx;
+	u32 generation;
+	int rc;
+
+	if (GENL_REQ_ATTR_CHECK(info, DEVICE_EVIDENCE_A_OBJECT_GENERATION)) {
+		NL_SET_ERR_MSG(info->extack, "missing evidence generation");
+		return -EINVAL;
+	}
+	generation = nla_get_u32(info->attrs[DEVICE_EVIDENCE_A_OBJECT_GENERATION]);
+
+	ACQUIRE(mutex_intr, lock)(&device_evidence_lock);
+	if ((rc = ACQUIRE_ERR(mutex_intr, &lock)))
+		return rc;
+
+	struct device_evidence_ctx *ctx __free(put_ctx) =
+		device_evidence_ctx_setup(info, &_ctx);
+	if (IS_ERR(ctx))
+		return PTR_ERR(ctx);
+
+	ops = ctx->subsys->ops;
+	evidence = ops->evidence_read_begin(ctx->dev);
+	if (IS_ERR(evidence)) {
+		NL_SET_ERR_MSG(info->extack, "failed to acquire evidence context");
+		return PTR_ERR(evidence);
+	}
+
+	if (generation == evidence->generation) {
+		evidence->validated_generation = evidence->generation;
+	} else {
+		NL_SET_ERR_MSG(info->extack, "evidence generation is stale");
+		rc = -ESTALE;
+	}
+
+	ops->evidence_read_end(evidence);
+	return rc;
+}
+
 static int __init device_evidence_nl_init(void)
 {
 	return genl_register_family(&device_evidence_nl_family);

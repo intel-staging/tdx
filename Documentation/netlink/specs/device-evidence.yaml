@@ -184,3 +184,20 @@ operations:
             - generation
             - length
             - val
+    -
+      name: validate
+      doc: |
+        Assert that userspace accepts the evidence at 'generation' (e.g. as a
+        precondition for enabling DMA). If 'generation' matches the device's
+        current evidence generation the acceptance is recorded; it is
+        implicitly revoked when the evidence is regenerated.
+      attribute-set: object
+      flags: [admin-perm]
+      do:
+        request:
+          attributes:
+            - subsys
+            - dev-name
+            - generation
+        reply:
+          attributes: []

@@ -17,6 +17,8 @@ int device_evidence_nl_read_post(struct netlink_callback *cb);
 
 int device_evidence_nl_read_dumpit(struct sk_buff *skb,
 				   struct netlink_callback *cb);
+int device_evidence_nl_validate_doit(struct sk_buff *skb,
+				     struct genl_info *info);
 
 extern struct genl_family device_evidence_nl_family;
 
