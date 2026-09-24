@@ -239,6 +239,12 @@ properties:
                 enum: [ little-endian, big-endian ]
               multi-attr:
                 type: boolean
+              bloblen:
+                description: |
+                  Marks this attribute as a variable-length blob that may be split across
+                  multiple messages. The value names a separate scalar attribute that carries
+                  the total blob length, and which is sent ahead of the blob data so a consumer
+                  can preallocate the full payload.
               nested-attributes:
                 description: Name of the space (sub-space) used inside the attribute.
                 type: string
