@@ -427,10 +427,26 @@ static int tdx_devsec_run(struct pci_dev *pdev)
 	return 0;
 }
 
+static int tdx_devsec_enable_dma(struct pci_dev *pdev)
+{
+	int ret = tdx_mcall_dmar_accept(pci_dev_id(pdev), 0);
+
+	if (ret)
+		pci_err(pdev, "Failed to accept DMAR, ret=%d\n", ret);
+
+	return ret;
+}
+
+static void tdx_devsec_disable_dma(struct pci_dev *pdev)
+{
+}
+
 static struct pci_tsm_ops tdx_devsec_ops = {
 	.lock = tdx_devsec_lock,
 	.unlock = tdx_devsec_unlock,
 	.run = tdx_devsec_run,
+	.enable_dma = tdx_devsec_enable_dma,
+	.disable_dma = tdx_devsec_disable_dma,
 };
 
 static void devsec_tsm_remove(void *tsm_dev)
