@@ -23,11 +23,18 @@ bool device_untrusted(struct device *dev)
 	return dev->bus_trust && dev->bus_trust <= DEVICE_TRUST_ADVERSARY;
 }
 
+bool device_tcb_trusted(struct device *dev)
+{
+	return dev->p->trust >= DEVICE_TRUST_TCB;
+}
+
 /* Driver trust policy requires modules, builtin drivers always attach */
 static enum device_trust builtin_driver_trust(void)
 {
 	if (IS_ENABLED(CONFIG_BUILTIN_DEVICE_TRUST_ADVERSARY))
 		return DEVICE_TRUST_ADVERSARY;
+	else if (IS_ENABLED(CONFIG_BUILTIN_DEVICE_TRUST_TCB))
+		return DEVICE_TRUST_TCB;
 	return DEVICE_TRUST_AUTO;
 }
 
@@ -61,6 +68,7 @@ static const char * const device_trust_names[] = {
 	[DEVICE_TRUST_NONE]	 = "none",
 	[DEVICE_TRUST_ADVERSARY] = "adversary",
 	[DEVICE_TRUST_AUTO]	 = "auto",
+	[DEVICE_TRUST_TCB]	 = "tcb",
 };
 
 static enum device_trust device_trust_parse(const char *name)

@@ -19,6 +19,7 @@
 #include <linux/kexec.h>
 #include <linux/of_device.h>
 #include <linux/acpi.h>
+#include <linux/pci-tsm.h>
 #include <linux/dma-map-ops.h>
 #include <linux/iommu.h>
 #include "pci.h"
@@ -1692,10 +1693,11 @@ static int pci_bus_num_vf(struct device *dev)
 static int pci_dma_configure(struct device *dev)
 {
 	const struct device_driver *drv = READ_ONCE(dev->driver);
-	struct device *bridge;
+	struct pci_dev *pdev = to_pci_dev(dev);
 	int ret = 0;
 
-	bridge = pci_get_host_bridge_device(to_pci_dev(dev));
+	struct device *bridge __free(put_device) =
+		pci_get_host_bridge_device(pdev);
 
 	if (IS_ENABLED(CONFIG_OF) && bridge->parent &&
 	    bridge->parent->of_node) {
@@ -1712,16 +1714,21 @@ static int pci_dma_configure(struct device *dev)
 	 * the standard ACS capability but still support ACS via those
 	 * quirks.
 	 */
-	pci_enable_acs(to_pci_dev(dev));
-
-	pci_put_host_bridge_device(bridge);
+	pci_enable_acs(pdev);
 
 	/* @drv may not be valid when we're called from the IOMMU layer */
-	if (!ret && drv && !to_pci_driver(drv)->driver_managed_dma) {
+	if (ret || !drv)
+		return ret;
+
+	if (device_tcb_trusted(dev))
+		ret = pci_tsm_enable_dma(pdev);
+
+	if (!ret && !to_pci_driver(drv)->driver_managed_dma)
 		ret = iommu_device_use_default_domain(dev);
-		if (ret)
-			arch_teardown_dma_ops(dev);
-	}
+
+	/* undo {of,acpi}_dma_configure() */
+	if (ret)
+		arch_teardown_dma_ops(dev);
 
 	return ret;
 }

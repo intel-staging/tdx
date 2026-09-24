@@ -13,6 +13,7 @@
  * @DEVICE_TRUST_NONE: Blocked when idle, cannot bind
  * @DEVICE_TRUST_ADVERSARY: Blocked when idle, constrained when active.
  * @DEVICE_TRUST_AUTO: All typical privileges granted
+ * @DEVICE_TRUST_TCB: AUTO privileges + private/encrypted memory access
  *
  * Devices flagged as adversarial are the ones that can potentially
  * execute DMA attacks and similar. They are typically connected through
@@ -25,11 +26,13 @@ enum device_trust {
 	DEVICE_TRUST_NONE,
 	DEVICE_TRUST_ADVERSARY,
 	DEVICE_TRUST_AUTO,
+	DEVICE_TRUST_TCB,
 };
 
 #define DEVICE_DEFAULT_TRUST \
 	(IS_ENABLED(CONFIG_DEVICE_TRUST_NONE)      ? DEVICE_TRUST_NONE      : \
 	 IS_ENABLED(CONFIG_DEVICE_TRUST_ADVERSARY) ? DEVICE_TRUST_ADVERSARY : \
+	 IS_ENABLED(CONFIG_DEVICE_TRUST_TCB)       ? DEVICE_TRUST_TCB       : \
 	 DEVICE_TRUST_AUTO)
 
 struct device;
@@ -37,6 +40,7 @@ struct device_driver;
 
 #ifdef CONFIG_DEVICE_TRUST
 bool device_untrusted(struct device *dev);
+bool device_tcb_trusted(struct device *dev);
 void module_driver_trust(struct module *mod, const char *val);
 void module_driver_trust_init(struct module *mod, bool require_trust);
 #else

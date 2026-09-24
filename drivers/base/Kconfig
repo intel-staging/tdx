@@ -288,7 +288,17 @@ config DEVICE_TRUST_AUTO
 	help
 	  Typical historical driver model, devices eagerly attempt to attach to
 	  a driver and deploy all available mechanisms to allow performant
-	  direct memory access.
+	  direct memory access. This trust level does not include TCB privileges.
+
+config DEVICE_TRUST_TCB
+	bool "TCB"
+	depends on EXPERT
+	help
+	  Devices are assumed to be within the Trusted Compute Boundary (TCB)
+	  with access to private TCB resources by default. This requires buses
+	  to have trust awareness and opt devices out of private operation,
+	  otherwise TCB integrity may fail the device's access or escalate to
+	  terminating the execution context (kill the CC VM).
 
 endchoice
 
@@ -313,6 +323,13 @@ config BUILTIN_DEVICE_TRUST_ADVERSARY
 	bool "Adversary"
 	help
 	  Deploy mitigations in the IOMMU layer and driver to limit access.
+
+config BUILTIN_DEVICE_TRUST_TCB
+	bool "TCB"
+	depends on EXPERT
+	help
+	  Devices bound by built-in drivers are assumed to be within the
+	  Trusted Compute Boundary with access to private/encrypted memory.
 
 endchoice
 
