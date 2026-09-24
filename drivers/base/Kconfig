@@ -246,4 +246,61 @@ config FW_DEVLINK_SYNC_STATE_TIMEOUT
 	  command line option on every system/board your kernel is expected to
 	  work on.
 
+config DEVICE_TRUST
+	bool "Device core support for specifying trust levels for devices"
+	help
+	  Enable support for generic device trust levels when building a kernel
+	  that needs to operate in the presence of potentially adversarial
+	  devices. This is selected by buses that want to operate devices with
+	  reduced privileges, like externally connected devices, and it is a
+	  pre-requisite for operating devices with access to private memory in a
+	  Confidential Computing VM. See
+	  Documentation/ABI/testing/sysfs-kernel-iommu_groups for the type of
+	  IOMMU enforcement in effect.
+
+choice
+	prompt "Default device trust"
+	default DEVICE_TRUST_AUTO
+	depends on DEVICE_TRUST
+	help
+	  Specify the device trust level at initial attachment. Any choice other
+	  than "Auto" assumes auditing the built-in driver set for trusted
+	  drivers, and an enlightened userspace modprobe policy for other
+	  devices + drivers.
+
+config DEVICE_TRUST_NONE
+	bool "None"
+	help
+	  Devices are disallowed from attaching to a driver, and where
+	  possible, the device is blocked by an IOMMU from accessing
+	  assets.
+
+config DEVICE_TRUST_AUTO
+	bool "Auto"
+	help
+	  Typical historical driver model, devices eagerly attempt to attach to
+	  a driver and deploy all available mechanisms to allow performant
+	  direct memory access.
+
+endchoice
+
+choice
+	prompt "Trust devices with built-in drivers"
+	default BUILTIN_DEVICE_TRUST_AUTO
+	depends on DEVICE_TRUST
+	help
+	  Built-in drivers always bind to devices they match. Only
+	  select a setting other than "Auto" when building a kernel image
+	  targeted for use in Confidential Computing or other known
+	  adversarial environments.
+
+config BUILTIN_DEVICE_TRUST_AUTO
+	bool "Auto"
+	help
+	  Typical historical driver model, devices eagerly attempt to attach to
+	  a driver and deploy all available mechanisms to allow performant
+	  direct memory access This trust level does not grant TCB privileges.
+
+endchoice
+
 endmenu

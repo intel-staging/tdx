@@ -103,6 +103,7 @@ struct driver_private {
  *			   dev_err_probe() for later retrieval via debugfs
  * @device: pointer back to the struct device that this structure is
  *	    associated with.
+ * @trust: device operational trust level
  * @dead: This device is currently either in the process of or has been
  *	  removed from the system. Any asynchronous events scheduled for this
  *	  device should exit without taking any action.
@@ -119,6 +120,7 @@ struct device_private {
 	const struct device_driver *async_driver;
 	char *deferred_probe_reason;
 	struct device *device;
+	enum device_trust	trust;
 	u8 dead:1;
 };
 #define to_device_private_parent(obj)	\
@@ -148,6 +150,19 @@ void container_dev_init(void);
 void auxiliary_bus_init(void);
 #else
 static inline void auxiliary_bus_init(void) { }
+#endif
+#ifdef CONFIG_DEVICE_TRUST
+bool device_trust_bind(const struct device_driver *drv, struct device *dev);
+void device_initialize_trust(struct device *dev);
+#else
+static inline void device_initialize_trust(struct device *dev)
+{
+}
+static inline bool device_trust_bind(const struct device_driver *drv,
+				     struct device *dev)
+{
+	return true;
+}
 #endif
 
 struct kobject *virtual_device_parent(void);

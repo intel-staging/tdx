@@ -857,6 +857,11 @@ static int __driver_probe_device(const struct device_driver *drv, struct device 
 	dev_dbg(dev, "bus: '%s': %s: matched device with driver %s\n",
 		drv->bus->name, __func__, drv->name);
 
+	if (!device_trust_bind(drv, dev)) {
+		dev_dbg(dev, "not trusted to bind\n");
+		return -ENODEV;
+	}
+
 	pm_runtime_get_suppliers(dev);
 	if (dev->parent)
 		pm_runtime_get_sync(dev->parent);

@@ -55,3 +55,10 @@ Description:
 		requests, the "driver_async_probe=..." kernel command line, the
 		"async_probe" module option, then this default. Write a valid
 		boolean value to toggle this policy.
+
+What:		/sys/module/module/parameters/require_trust
+Description:
+		(RW) Emits "1" if modules are required to specify a trust=
+		option on load to permit driver(s) in the module to attach to
+		matched devices. By default drivers always attach on match
+		unless the kernel was compiled with DEVICE_TRUST_NONE.

@@ -3759,6 +3759,13 @@ int device_add(struct device *dev)
 	}
 
 	/*
+	 * The bus and all device add notifiers have had a chance to
+	 * initialize trust, set a fallback default in case the trust
+	 * level is not yet established.
+	 */
+	device_initialize_trust(dev);
+
+	/*
 	 * The moment the device was linked into the bus's "klist_devices" in
 	 * bus_add_device() then it's possible that probe could have been
 	 * attempted in a different thread via userspace loading a driver

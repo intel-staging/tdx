@@ -29,6 +29,7 @@
 #include <linux/srcu.h>
 #include <linux/static_call_types.h>
 #include <linux/dynamic_debug.h>
+#include <linux/device/trust.h>
 
 #include <linux/percpu.h>
 #include <asm/module.h>
@@ -443,6 +444,10 @@ struct module {
 #endif
 
 	bool async_probe_requested;
+#ifdef CONFIG_DEVICE_TRUST
+	/* Trust level override for devices matching this module's drivers. */
+	enum device_trust trust;
+#endif
 
 	/* Exception table */
 	unsigned int num_exentries;
@@ -860,7 +865,6 @@ static inline bool module_requested_async_probing(struct module *module)
 {
 	return false;
 }
-
 
 /* Dereference module function descriptor */
 static inline

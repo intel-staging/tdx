@@ -36,6 +36,7 @@
 #include <linux/notifier.h>
 #include <linux/sched.h>
 #include <linux/device.h>
+#include <linux/device/trust.h>
 #include <linux/string.h>
 #include <linux/mutex.h>
 #include <linux/rculist.h>
@@ -3079,6 +3080,12 @@ void flush_module_init_free_work(void)
 static bool async_probe;
 module_param(async_probe, bool, 0644);
 
+#ifdef CONFIG_DEVICE_TRUST
+/* Default value for module trust. When true, trust= override required */
+static bool require_trust;
+module_param(require_trust, bool, 0644);
+#endif
+
 /*
  * This is where the real work happens.
  *
@@ -3386,6 +3393,11 @@ static int unknown_module_param_cb(char *param, char *val, const char *modname,
 		return 0;
 	}
 
+	if (strcmp(param, "trust") == 0) {
+		module_driver_trust(mod, val);
+		return 0;
+	}
+
 	/* Check for magic 'dyndbg' arg */
 	ret = ddebug_dyndbg_module_param_cb(param, val, modname);
 	if (ret != 0)
@@ -3555,6 +3567,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		goto bug_cleanup;
 
 	mod->async_probe_requested = async_probe;
+	module_driver_trust_init(mod, require_trust);
 
 	/* Module is ready to execute: parsing args may do that. */
 	after_dashes = parse_args(mod->name, args, mod->kp, mod->num_kp,
