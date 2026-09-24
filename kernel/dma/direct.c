@@ -41,7 +41,7 @@ static inline struct page *dma_direct_to_page(struct device *dev,
 
 u64 dma_direct_get_required_mask(struct device *dev)
 {
-	bool require_decrypted = force_dma_unencrypted(dev);
+	bool require_decrypted = dma_require_decrypted(dev);
 	phys_addr_t phys = ((phys_addr_t)max_pfn << PAGE_SHIFT) - 1;
 	u64 max_dma = phys_to_dma_direct(dev, phys, require_decrypted);
 
@@ -72,7 +72,7 @@ static gfp_t dma_direct_optimal_gfp_mask(struct device *dev, u64 *phys_limit)
 
 bool dma_coherent_ok(struct device *dev, phys_addr_t phys, size_t size)
 {
-	bool require_decrypted = force_dma_unencrypted(dev);
+	bool require_decrypted = dma_require_decrypted(dev);
 	dma_addr_t dma_addr = phys_to_dma_direct(dev, phys, require_decrypted);
 
 	if (dma_addr == DMA_MAPPING_ERROR)
@@ -208,7 +208,7 @@ void *dma_direct_alloc(struct device *dev, size_t size,
 	struct page *page;
 	void *cpu_addr;
 
-	if (force_dma_unencrypted(dev))
+	if (dma_require_decrypted(dev))
 		attrs |= __DMA_ATTR_ALLOC_CC_SHARED;
 
 	if (attrs & __DMA_ATTR_ALLOC_CC_SHARED) {
@@ -368,7 +368,7 @@ void dma_direct_free(struct device *dev, size_t size,
 	 * If the allocation used decrypted/shared backing pages, restore
 	 * the encryption state on free.
 	 */
-	if (force_dma_unencrypted(dev))
+	if (dma_require_decrypted(dev))
 		attrs |= __DMA_ATTR_ALLOC_CC_SHARED;
 
 	if (attrs & __DMA_ATTR_ALLOC_CC_SHARED)
@@ -436,7 +436,7 @@ struct page *dma_direct_alloc_pages(struct device *dev, size_t size,
 	struct page *page;
 	void *cpu_addr;
 
-	if (force_dma_unencrypted(dev))
+	if (dma_require_decrypted(dev))
 		attrs |= __DMA_ATTR_ALLOC_CC_SHARED;
 
 	if ((attrs & __DMA_ATTR_ALLOC_CC_SHARED) && dma_direct_use_pool(dev, gfp))
@@ -480,7 +480,7 @@ void dma_direct_free_pages(struct device *dev, size_t size,
 	 * if the device had requested for an unencrypted buffer,
 	 * convert it to encrypted on free
 	 */
-	bool mark_mem_encrypted = force_dma_unencrypted(dev);
+	bool mark_mem_encrypted = dma_require_decrypted(dev);
 
 	/* If page is not from an atomic pool, dma_free_from_pool_page() fails */
 	if (IS_ENABLED(CONFIG_DMA_COHERENT_POOL) &&
@@ -649,7 +649,7 @@ int dma_direct_mmap(struct device *dev, struct vm_area_struct *vma,
 	const pgoff_t pgoff_end = vma_end_pgoff(vma);
 	int ret = -ENXIO;
 
-	if (force_dma_unencrypted(dev))
+	if (dma_require_decrypted(dev))
 		attrs |= DMA_ATTR_CC_SHARED;
 
 	vma->vm_page_prot = dma_pgprot(dev, vma->vm_page_prot, attrs);
@@ -798,7 +798,7 @@ size_t dma_direct_max_mapping_size(struct device *dev)
 	/* If SWIOTLB is active, use its maximum mapping size */
 	if (is_swiotlb_active(dev) &&
 	    (dma_addressing_limited(dev) || is_swiotlb_force_bounce(dev) ||
-	     force_dma_unencrypted(dev)))
+	     dma_require_decrypted(dev)))
 		return swiotlb_max_mapping_size(dev);
 
 	return SIZE_MAX;

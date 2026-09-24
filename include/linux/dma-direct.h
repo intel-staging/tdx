@@ -134,6 +134,11 @@ static inline bool force_dma_unencrypted(struct device *dev)
 }
 #endif /* CONFIG_ARCH_HAS_FORCE_DMA_UNENCRYPTED */
 
+static inline bool dma_require_decrypted(struct device *dev)
+{
+	return !dev_dma_cc_private(dev) && force_dma_unencrypted(dev);
+}
+
 static inline bool dma_capable(struct device *dev, dma_addr_t addr, size_t size,
 		bool is_ram, unsigned long attrs)
 {
@@ -146,7 +151,7 @@ static inline bool dma_capable(struct device *dev, dma_addr_t addr, size_t size,
 	 * requires unencrypted DMA addresses. Treat it as not DMA-capable
 	 * so the caller can fall back to a suitable SWIOTLB pool.
 	 */
-	if (!(attrs & DMA_ATTR_CC_SHARED) && force_dma_unencrypted(dev))
+	if (!(attrs & DMA_ATTR_CC_SHARED) && dma_require_decrypted(dev))
 		return false;
 
 	if (is_ram && !IS_ENABLED(CONFIG_ARCH_DMA_ADDR_T_64BIT) &&

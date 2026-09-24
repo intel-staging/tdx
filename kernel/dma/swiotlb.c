@@ -1552,7 +1552,7 @@ phys_addr_t swiotlb_tbl_map_single(struct device *dev, phys_addr_t orig_addr,
 	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT)) {
 
 		/* swiotlb pool is incorrect for this device */
-		if (unlikely(mem->cc_shared != force_dma_unencrypted(dev)))
+		if (unlikely(mem->cc_shared != dma_require_decrypted(dev)))
 			return (phys_addr_t)DMA_MAPPING_ERROR;
 
 	} else if (cc_platform_has(CC_ATTR_HOST_MEM_ENCRYPT)) {
