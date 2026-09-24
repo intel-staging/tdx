@@ -26,3 +26,16 @@ Description:
 		Documentation/ABI/testing/sysfs-bus-pci for the available PCI
 		device attributes when a TSM with the given "pci_mode" is
 		registered.
+
+What:		/sys/class/tsm/tsmN/pciDDDD:BB
+Contact:	linux-pci@vger.kernel.org
+Description:
+		(RO) When a PCIe host bridge has established a secure connection
+		via a TSM to an endpoint, this symlink appears. It facilitates a
+		TSM instance scoped view of PCIe Link Encryption and Secure
+		Session resource consumption across host bridges. The symlink
+		appears when a host bridge has 1 or more IDE streams established
+		with this TSM, and disappears when that number returns to 0. See
+		Documentation/ABI/testing/sysfs-devices-pci-host-bridge for the
+		description of the pciDDDD:BB/streamH.R.E symlink and the
+		pciDDDD:BB/available_secure_streams attribute.

@@ -4,10 +4,12 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/tsm.h>
+#include <linux/pci.h>
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/cleanup.h>
 #include <linux/pci-tsm.h>
+#include <linux/pci-ide.h>
 
 static ssize_t pci_mode_show(struct device *dev, struct device_attribute *attr,
 			     char *buf)
@@ -149,6 +151,99 @@ void tsm_unregister(struct tsm_dev *tsm_dev)
 }
 EXPORT_SYMBOL_GPL(tsm_unregister);
 
+static DEFINE_XARRAY(tsm_ide_streams);
+static DEFINE_MUTEX(tsm_ide_streams_lock);
+
+/* tracker for the bridge symlink when the bridge has any streams */
+struct tsm_ide_stream {
+	struct tsm_dev *tsm_dev;
+	struct pci_host_bridge *bridge;
+	struct kref kref;
+};
+
+static struct tsm_ide_stream *create_streams(struct tsm_dev *tsm_dev,
+					    struct pci_host_bridge *bridge)
+{
+	int rc;
+
+	struct tsm_ide_stream *streams __free(kfree) = kzalloc_obj(*streams);
+	if (!streams)
+		return NULL;
+
+	streams->tsm_dev = tsm_dev;
+	streams->bridge = bridge;
+	kref_init(&streams->kref);
+	rc = xa_insert(&tsm_ide_streams, (unsigned long)bridge, streams,
+		       GFP_KERNEL);
+	if (rc)
+		return NULL;
+
+	rc = sysfs_create_link(&tsm_dev->dev.kobj, &bridge->dev.kobj,
+			       dev_name(&bridge->dev));
+	if (rc) {
+		xa_erase(&tsm_ide_streams, (unsigned long)bridge);
+		return NULL;
+	}
+
+	return no_free_ptr(streams);
+}
+
+int tsm_ide_stream_register(struct pci_ide *ide)
+{
+	struct tsm_ide_stream *streams;
+	struct pci_dev *pdev = ide->pdev;
+	struct pci_tsm *tsm = pdev->tsm;
+	struct tsm_dev *tsm_dev = tsm->tsm_dev;
+	struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->bus);
+
+	guard(mutex)(&tsm_ide_streams_lock);
+	streams = xa_load(&tsm_ide_streams, (unsigned long)bridge);
+	if (streams)
+		kref_get(&streams->kref);
+	else
+		streams = create_streams(tsm_dev, bridge);
+
+	if (!streams)
+		return -ENOMEM;
+	ide->tsm_dev = tsm_dev;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tsm_ide_stream_register);
+
+static void destroy_streams(struct kref *kref)
+{
+	struct tsm_ide_stream *streams =
+		container_of(kref, struct tsm_ide_stream, kref);
+	struct tsm_dev *tsm_dev = streams->tsm_dev;
+	struct pci_host_bridge *bridge = streams->bridge;
+
+	lockdep_assert_held(&tsm_ide_streams_lock);
+	sysfs_remove_link(&tsm_dev->dev.kobj, dev_name(&bridge->dev));
+	xa_erase(&tsm_ide_streams, (unsigned long)bridge);
+	kfree(streams);
+}
+
+void tsm_ide_stream_unregister(struct pci_ide *ide)
+{
+	struct tsm_ide_stream *streams;
+	struct tsm_dev *tsm_dev = ide->tsm_dev;
+	struct pci_dev *pdev = ide->pdev;
+	struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->bus);
+
+	guard(mutex)(&tsm_ide_streams_lock);
+	streams = xa_load(&tsm_ide_streams, (unsigned long)bridge);
+	/* catch API abuse */
+	if (dev_WARN_ONCE(&tsm_dev->dev,
+			  !streams || streams->tsm_dev != tsm_dev,
+			  "no IDE streams associated with %s\n",
+			  dev_name(&bridge->dev)))
+		return;
+	kref_put(&streams->kref, destroy_streams);
+	ide->tsm_dev = NULL;
+}
+EXPORT_SYMBOL_GPL(tsm_ide_stream_unregister);
+
 static void tsm_release(struct device *dev)
 {
 	struct tsm_dev *tsm_dev = container_of(dev, typeof(*tsm_dev), dev);
@@ -166,6 +261,7 @@ module_init(tsm_init)
 static void __exit tsm_exit(void)
 {
 	class_unregister(&tsm_class);
+	xa_destroy(&tsm_ide_streams);
 }
 module_exit(tsm_exit)
 
