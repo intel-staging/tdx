@@ -41,6 +41,9 @@ enum ynl_parse_result {
 
 typedef int (*ynl_parse_cb_t)(const struct nlmsghdr *nlh,
 			      struct ynl_parse_arg *yarg);
+typedef bool (*ynl_more_cb_t)(void *data);
+
+struct ynl_blob *ynl_blob_alloc(unsigned int len);
 
 struct ynl_policy_attr {
 	enum ynl_policy_type type:8;
@@ -123,6 +126,7 @@ struct ynl_dump_state {
 	struct ynl_dump_list_type *last;
 	size_t alloc_sz;
 	ynl_parse_cb_t cb;
+	ynl_more_cb_t more;
 	__u32 rsp_cmd;
 };
 

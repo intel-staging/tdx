@@ -735,14 +735,20 @@ class TypeMultiAttr(Type):
     def is_multi_val(self):
         return True
 
+    def is_blob(self):
+        return bool(self.bloblen)
+
     def presence_type(self):
-        return 'count'
+        return 'len' if self.is_blob() else 'count'
 
     def _complex_member_type(self, ri):
         if 'type' not in self.attr or self.attr['type'] == 'nest':
             return self.nested_struct_type
-        if self.attr['type'] == 'binary' and 'struct' in self.attr:
-            return None  # use arg_member()
+        if self.attr['type'] == 'binary':
+            if 'struct' in self.attr:
+                return None  # use arg_member()
+            if self.is_blob():
+                return 'struct ynl_blob'
         if self.attr['type'] == 'string':
             return 'struct ynl_string *'
         if self.attr['type'] in scalars:
@@ -755,9 +761,12 @@ class TypeMultiAttr(Type):
         raise Exception(f"Sub-type {self.attr['type']} not supported yet")
 
     def arg_member(self, ri):
-        if self.type == 'binary' and 'struct' in self.attr:
-            return [f'struct {c_lower(self.attr["struct"])} *{self.c_name}',
-                    f'unsigned int n_{self.c_name}']
+        if self.type == 'binary':
+            if 'struct' in self.attr:
+                return [f'struct {c_lower(self.attr["struct"])} *{self.c_name}',
+                        f'unsigned int n_{self.c_name}']
+            if self.is_blob():
+                return [f'struct ynl_blob *{self.c_name}']
         return super().arg_member(ri)
 
     def free_needs_iter(self):
@@ -792,6 +801,24 @@ class TypeMultiAttr(Type):
         return self.base_type._attr_typol()
 
     def _attr_get(self, ri, var):
+        if self.is_blob():
+            length = self.attr_set[self.bloblen]
+            return [
+                f"if (!{var}->{self.c_name})",
+                f"{var}->{self.c_name} = ynl_blob_alloc({var}->{length.c_name});",
+                f"if (!{var}->{self.c_name})",
+                "return YNL_PARSE_CB_ERROR;",
+                f"if ({var}->_len.{self.c_name} > {var}->{self.c_name}->len || " +
+                f"len > {var}->{self.c_name}->len - {var}->_len.{self.c_name})",
+                f'return ynl_error_parse(yarg, "blob data exceeds length '
+                f'({self.attr_set.name}.{self.name})");',
+                f"memcpy({var}->{self.c_name}->data + {var}->_len.{self.c_name}, " +
+                "ynl_attr_data(attr), len);",
+                f"{var}->_len.{self.c_name} += len;"], \
+                ['if (ynl_attr_validate(yarg, attr))', 'return YNL_PARSE_CB_ERROR;',
+                 'len = ynl_attr_data_len(attr);'], \
+                ['unsigned int len;']
+
         return f'n_{self.c_name}++;', None, None
 
     def attr_put(self, ri, var):
@@ -799,6 +826,10 @@ class TypeMultiAttr(Type):
             put_type = self.type
             ri.cw.p(f"for (i = 0; i < {var}->_count.{self.c_name}; i++)")
             ri.cw.p(f"ynl_attr_put_{put_type}(nlh, {self.enum_name}, {var}->{self.c_name}[i]);")
+        elif self.attr['type'] == 'binary' and self.is_blob():
+            ri.cw.p(f"if ({var}->{self.c_name})")
+            ri.cw.p(f"ynl_attr_put(nlh, {self.enum_name}, " +
+                    f"{var}->{self.c_name}->data, {var}->{self.c_name}->len);")
         elif self.attr['type'] == 'binary' and 'struct' in self.attr:
             ri.cw.p(f"for (i = 0; i < {var}->_count.{self.c_name}; i++)")
             ri.cw.p(f"ynl_attr_put(nlh, {self.enum_name}, &{var}->{self.c_name}[i], sizeof(struct {c_lower(self.attr['struct'])}));")
@@ -813,6 +844,10 @@ class TypeMultiAttr(Type):
             raise Exception(f"Put of MultiAttr sub-type {self.attr['type']} not supported yet")
 
     def _setter_lines(self, ri, member, presence):
+        if self.is_blob():
+            return [f"{presence} = {self.c_name}->len;",
+                    f"{member} = malloc(sizeof(*{member}) + {presence});",
+                    f"memcpy({member}, {self.c_name}, sizeof(*{member}) + {presence});"]
         return [f"{member} = {self.c_name};",
                 f"{presence} = n_{self.c_name};"]
 
@@ -2172,7 +2207,8 @@ def _multi_parse(ri, struct, init_lines, local_vars):
             else:
                 raise Exception(f'Not supported sub-type {aspec["sub-type"]}')
         if 'multi-attr' in aspec:
-            multi_attrs.add(arg)
+            if not aspec.bloblen:
+                multi_attrs.add(arg)
         needs_parg |= 'nested-attributes' in aspec
         needs_parg |= 'sub-message' in aspec
 
@@ -2402,6 +2438,33 @@ def parse_rsp_msg(ri, deref=False):
         ri.cw.nl()
 
 
+def _blob_attrs(ri):
+    return [attr for _, attr in ri.struct['reply'].member_list() if attr.bloblen]
+
+
+def print_rsp_more(ri):
+    blob_attrs = _blob_attrs(ri)
+    if not blob_attrs:
+        return
+
+    local_vars = [f'{type_name(ri, "reply", deref=True)} *rsp = data;']
+
+    ri.cw.write_func_prot('static bool',
+                          f'{op_prefix(ri, "reply", deref=True)}_more',
+                          ['void *data'], suffix='')
+    ri.cw.block_start()
+    ri.cw.write_func_lvar(local_vars)
+
+    for attr in blob_attrs:
+        ri.cw.p(f"if (rsp->{attr.c_name} && " +
+                f"rsp->_len.{attr.c_name} < rsp->{attr.c_name}->len)")
+        ri.cw.p('return true;')
+
+    ri.cw.p('return false;')
+    ri.cw.block_end()
+    ri.cw.nl()
+
+
 def print_req(ri):
     ret_ok = '0'
     ret_err = '-1'
@@ -2498,6 +2561,8 @@ def print_dump(ri):
     ri.cw.p("yds.yarg.data = NULL;")
     ri.cw.p(f"yds.alloc_sz = sizeof({type_name(ri, rdir(direction))});")
     ri.cw.p(f"yds.cb = {op_prefix(ri, 'reply', deref=True)}_parse;")
+    if _blob_attrs(ri):
+        ri.cw.p(f"yds.more = {op_prefix(ri, 'reply', deref=True)}_more;")
     if ri.op.value is not None:
         ri.cw.p(f'yds.rsp_cmd = {ri.op.enum_name};')
     else:
@@ -3750,6 +3815,7 @@ def main():
                         parse_rsp_msg(ri, deref=True)
                     print_req_free(ri)
                     print_dump_type_free(ri)
+                    print_rsp_more(ri)
                     print_dump(ri)
                     cw.nl()
 

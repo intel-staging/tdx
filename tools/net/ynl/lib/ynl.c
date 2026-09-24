@@ -1006,6 +1006,27 @@ int ynl_exec(struct ynl_sock *ys, struct nlmsghdr *req_nlh,
 	return err;
 }
 
+struct ynl_blob *ynl_blob_alloc(unsigned int len)
+{
+	size_t size = sizeof(struct ynl_blob) + len;
+	struct ynl_blob *blob;
+
+	if (size < len)
+		return NULL;
+	blob = malloc(size);
+	if (blob)
+		blob->len = len;
+	return blob;
+}
+
+/* continue filling a blob attribute? */
+static bool ynl_check_more(struct ynl_dump_state *ds)
+{
+	struct ynl_dump_list_type *prev = ds->last;
+
+	return prev && ds->more && ds->more(&prev->data);
+}
+
 static int
 ynl_dump_trampoline(const struct nlmsghdr *nlh, struct ynl_parse_arg *data)
 {
@@ -1017,6 +1038,13 @@ ynl_dump_trampoline(const struct nlmsghdr *nlh, struct ynl_parse_arg *data)
 	ret = ynl_check_alien(ds->yarg.ys, nlh, ds->rsp_cmd);
 	if (ret)
 		return ret < 0 ? YNL_PARSE_CB_ERROR : YNL_PARSE_CB_OK;
+
+	if (ynl_check_more(ds)) {
+		yarg = ds->yarg;
+		yarg.data = &ds->last->data;
+
+		return ds->cb(nlh, &yarg);
+	}
 
 	obj = calloc(1, ds->alloc_sz);
 	if (!obj)
@@ -1061,6 +1089,11 @@ int ynl_exec_dump(struct ynl_sock *ys, struct nlmsghdr *req_nlh,
 		if (err < 0)
 			goto err_close_list;
 	} while (err > 0);
+
+	if (ynl_check_more(yds)) {
+		yerr(ys, YNL_ERROR_ATTR_MISSING, "Dump ended with an incomplete blob");
+		goto err_close_list;
+	}
 
 	yds->first = ynl_dump_end(yds);
 	return 0;

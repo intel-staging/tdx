@@ -100,6 +100,20 @@ struct ynl_string {
 	char str[];
 };
 
+/**
+ * struct ynl_blob - variable-length blob attribute
+ * @len: length of the blob data
+ * @data: value of the blob attribute
+ *
+ * Parsed binary value. This struct is used for variable-length blob values
+ * that may be built from one or more attributes spanning multiple netlink
+ * messages.
+ */
+struct ynl_blob {
+	unsigned int len;
+	unsigned char data[];
+};
+
 struct ynl_sock *
 ynl_sock_create(const struct ynl_family *yf, struct ynl_error *e);
 void ynl_sock_destroy(struct ynl_sock *ys);
