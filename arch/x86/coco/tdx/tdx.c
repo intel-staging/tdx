@@ -34,11 +34,6 @@
 #define VE_GET_PORT_NUM(e)	((e) >> 16)
 #define VE_IS_IO_STRING(e)	((e) & BIT(4))
 
-/* TDX Module call error codes */
-#define TDCALL_RETURN_CODE(a)	((a) >> 32)
-#define TDCALL_INVALID_OPERAND	0xc0000100
-#define TDCALL_OPERAND_BUSY	0x80000200
-
 #define TDREPORT_SUBTYPE_0	0
 
 static atomic_long_t nr_shared;

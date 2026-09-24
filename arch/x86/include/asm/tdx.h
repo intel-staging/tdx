@@ -77,6 +77,25 @@ void tdx_halt(void);
 
 bool tdx_early_handle_ve(struct pt_regs *regs);
 
+/* TDX Module call error codes */
+#define TDCALL_RETURN_CODE(a)		((a) >> 32)
+#define TDCALL_INVALID_OPERAND		0xc0000100
+#define TDCALL_OPERAND_BUSY		0x80000200
+#define TDCALL_TDI_NOT_PRESENT		0xc0000f40
+#define TDCALL_TDI_INVALID_METADATA	0xc0000f41
+
+static inline int tdx_mcall_to_errno(u64 ret)
+{
+	switch (TDCALL_RETURN_CODE(ret)) {
+	case TDCALL_INVALID_OPERAND:
+		return -ENXIO;
+	case TDCALL_OPERAND_BUSY:
+		return -EBUSY;
+	default:
+		return -EIO;
+	}
+}
+
 u64 tdg_vm_rd(u64 field, u64 *value);
 
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
@@ -87,6 +106,7 @@ u64 tdx_hcall_get_quote(u8 *buf, size_t size);
 
 #ifdef CONFIG_TDX_CONNECT_GUEST
 u64 tdx_hcall_tdcm(u16 devid, void *buf, size_t size, u8 vector);
+int tdx_mcall_tdi_read(u64 func_id, u64 field, u64 *value);
 #endif
 
 void __init tdx_dump_attributes(u64 td_attr);
