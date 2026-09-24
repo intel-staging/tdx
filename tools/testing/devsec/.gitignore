@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0
+/device-evidence
+/device-evidence-user.c
+/device-evidence-user.h
+*.o
