@@ -6,6 +6,7 @@
 #include <linux/pci-tsm.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/sysfs.h>
 #include <linux/tsm.h>
 #include "devsec.h"
 
@@ -105,9 +106,15 @@ static const struct faux_device_ops devsec_device_ops = {
 	.probe = devsec_tsm_probe,
 };
 
+static const struct attribute_group *devsec_evidence_groups[] = {
+	&devsec_evidence_group,
+	NULL,
+};
+
 static int __init devsec_tsm_init(void)
 {
-	devsec_tsm = faux_device_create("devsec_tsm", NULL, &devsec_device_ops);
+	devsec_tsm = faux_device_create_with_groups(
+		"devsec_tsm", NULL, &devsec_device_ops, devsec_evidence_groups);
 	if (!devsec_tsm)
 		return -ENOMEM;
 	return 0;

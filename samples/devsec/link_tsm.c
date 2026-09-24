@@ -2,7 +2,9 @@
 /* Copyright (C) 2024 - 2026 Intel Corporation */
 
 #define dev_fmt(fmt) "devsec: " fmt
+#include <linux/device/evidence.h>
 #include <linux/device/faux.h>
+#include <crypto/hash_info.h>
 #include <linux/pci-tsm.h>
 #include <linux/pci-ide.h>
 #include <linux/module.h>
@@ -51,6 +53,8 @@ static struct device *pci_tsm_host(struct pci_dev *pdev)
 static struct pci_tsm *devsec_tsm_pf0_probe(struct tsm_dev *tsm_dev,
 					    struct pci_dev *pdev)
 {
+	struct device_evidence *evidence;
+	struct pci_tsm *tsm;
 	int rc;
 
 	dev_dbg(tsm_dev->dev.parent, "%s\n", pci_name(pdev));
@@ -60,9 +64,17 @@ static struct pci_tsm *devsec_tsm_pf0_probe(struct tsm_dev *tsm_dev,
 	if (!devsec_tsm)
 		return NULL;
 
+	tsm = &devsec_tsm->pci.base_tsm;
 	rc = pci_tsm_pf0_constructor(pdev, &devsec_tsm->pci, tsm_dev);
 	if (rc)
 		return NULL;
+
+	devsec_evidence_busy();
+	evidence = device_evidence_create(0, HASH_ALGO_SHA384);
+	if (!evidence)
+		return NULL;
+	devsec_init_evidence(evidence);
+	tsm->evidence = evidence;
 
 	pci_dbg(pdev, "TSM enabled\n");
 	return &no_free_ptr(devsec_tsm)->pci.base_tsm;
@@ -113,6 +125,7 @@ static void devsec_link_tsm_pci_remove(struct pci_tsm *tsm)
 	if (is_pci_tsm_pf0(pdev)) {
 		struct devsec_tsm_pf0 *devsec_tsm = to_devsec_tsm_pf0(tsm);
 
+		devsec_evidence_idle();
 		pci_tsm_pf0_destructor(&devsec_tsm->pci);
 		kfree(devsec_tsm);
 	} else {
@@ -390,7 +403,16 @@ static struct attribute *devsec_link_attrs[] = {
 	&dev_attr_tsm_request.attr,
 	NULL,
 };
-ATTRIBUTE_GROUPS(devsec_link);
+
+static const struct attribute_group devsec_link_group = {
+	.attrs = devsec_link_attrs,
+};
+
+static const struct attribute_group *devsec_link_groups[] = {
+	&devsec_link_group,
+	&devsec_evidence_group,
+	NULL,
+};
 
 static int __init devsec_link_tsm_init(void)
 {

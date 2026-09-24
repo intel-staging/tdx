@@ -40,4 +40,9 @@ static inline int devsec_get_domain_nr(struct devsec_sysdata *sd)
 }
 #endif
 extern struct devsec_sysdata *devsec_sysdata[NR_DEVSEC_HOST_BRIDGES];
+extern const struct attribute_group devsec_evidence_group;
+void devsec_evidence_busy(void);
+void devsec_evidence_idle(void);
+struct device_evidence;
+void devsec_init_evidence(struct device_evidence *evidence);
 #endif /* __DEVSEC_H__ */
