@@ -754,6 +754,48 @@ static ssize_t unlock_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_WO(unlock);
 
+/* pci_dma_configure() helper to finalize access to private memory. */
+int pci_tsm_enable_dma(struct pci_dev *pdev) __must_hold(&pdev->dev->mutex)
+{
+	struct device *dev = &pdev->dev;
+	const struct pci_tsm_ops *ops;
+	int rc;
+
+	if (dev_WARN_ONCE(dev, !dev->driver,
+			  "DMA access only finalized at driver attach\n"))
+		return -ENXIO;
+
+	if (!pdev->tsm)
+		return 0;
+
+	ops = to_pci_tsm_ops(pdev->tsm);
+	if (!ops->enable_dma)
+		return 0;
+
+	rc = ops->enable_dma(pdev);
+	if (rc == 0)
+		set_bit(PCI_TSM_F_DMA, &pdev->tsm->flags);
+	return rc;
+}
+
+/*
+ * pci_dma_cleanup() helper to block private memory access as device is
+ * going idle
+ */
+void pci_tsm_disable_dma(struct pci_dev *pdev) __must_hold(&pdev->dev->mutex)
+{
+	const struct pci_tsm_ops *ops;
+
+	if (!pdev->tsm)
+		return;
+
+	if (!test_and_clear_bit(PCI_TSM_F_DMA, &pdev->tsm->flags))
+		return;
+
+	ops = to_pci_tsm_ops(pdev->tsm);
+	ops->disable_dma(pdev);
+}
+
 /* The 'authenticated' attribute is exclusive to the presence of a 'link' TSM */
 static bool pci_tsm_link_group_visible(struct kobject *kobj)
 {

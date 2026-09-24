@@ -82,6 +82,8 @@ struct pci_tsm_ops {
 					struct pci_dev *pdev);
 		void (*unlock)(struct pci_tsm *tsm);
 		int (*run)(struct pci_dev *pdev);
+		int (*enable_dma)(struct pci_dev *pdev);
+		void (*disable_dma)(struct pci_dev *pdev);
 	);
 
 	int (*refresh_evidence)(struct pci_tsm *tsm, const void *nonce,
@@ -102,6 +104,8 @@ struct pci_tdi {
 
 /* Private operation acknowledged, future ioremap will use private alias */
 #define PCI_TSM_F_ACCEPT (1UL << 0)
+/* DMA access to private memory enabled */
+#define PCI_TSM_F_DMA (1UL << 1)
 
 /**
  * struct pci_tsm - Core TSM context for a given PCIe endpoint
@@ -247,6 +251,8 @@ int pci_tsm_doe_transfer(struct pci_dev *pdev, u8 type, const void *req,
 			 size_t req_sz, void *resp, size_t resp_sz);
 int pci_tsm_bind(struct pci_dev *pdev, struct kvm *kvm, u32 tdi_id);
 void pci_tsm_unbind(struct pci_dev *pdev);
+int pci_tsm_enable_dma(struct pci_dev *pdev);
+void pci_tsm_disable_dma(struct pci_dev *pdev);
 void pci_tsm_tdi_constructor(struct pci_dev *pdev, struct pci_tdi *tdi,
 			     struct kvm *kvm, u32 tdi_id);
 ssize_t pci_tsm_guest_req(struct pci_dev *pdev, enum pci_tsm_req_scope scope,
@@ -268,6 +274,13 @@ static inline void pci_tsm_unregister(struct tsm_dev *tsm_dev)
 static inline int pci_tsm_bind(struct pci_dev *pdev, struct kvm *kvm, u64 tdi_id)
 {
 	return -ENXIO;
+}
+static inline int pci_tsm_enable_dma(struct pci_dev *pdev)
+{
+	return 0;
+}
+static inline void pci_tsm_disable_dma(struct pci_dev *pdev)
+{
 }
 static inline void pci_tsm_unbind(struct pci_dev *pdev)
 {
