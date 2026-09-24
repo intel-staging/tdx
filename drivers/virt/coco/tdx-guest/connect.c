@@ -217,8 +217,35 @@ static int tdx_tdi_read_state(struct tdx_devsec *tdevsec, u8 *state)
 	return ret;
 }
 
+static u8 *tdx_tdi_get_report(struct tdx_devsec *tdevsec, u32 *report_sz)
+{
+	struct pci_dev *pdev = tdevsec->pci.base_tsm.pdev;
+	u8 *report;
+	int ret;
+
+	struct tdcm_ctx *tdcm __free(tdx_tdcm_free) =
+		tdx_tdcm_alloc(pdev, TDCM_OP_GET_TDI_REPORT, 0, MAX_TDI_REPORT_SIZE);
+	if (IS_ERR(tdcm))
+		return ERR_CAST(tdcm);
+
+	ret = tdx_tdcm_run(tdcm);
+	if (ret)
+		return ERR_PTR(ret);
+
+	report = kmemdup(to_tdcm_rsp_data(tdcm), tdcm->rsp_data_sz, GFP_KERNEL);
+	if (!report)
+		return ERR_PTR(-ENOMEM);
+
+	*report_sz = tdcm->rsp_data_sz;
+	print_hex_dump_debug("tdi_report: ", DUMP_PREFIX_OFFSET, 16, 1, report, *report_sz, false);
+	return report;
+}
+
 static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *pdev)
 {
+	struct device_evidence_object *tsm_report;
+	struct device_evidence *evidence;
+	u32 report_sz;
 	u8 state;
 	int ret;
 
@@ -237,12 +264,27 @@ static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *
 	if (IS_ERR(tdevsec_bind))
 		return ERR_CAST(tdevsec_bind);
 
+	u8 *report __free(kfree) = tdx_tdi_get_report(tdevsec, &report_sz);
+	if (IS_ERR(report))
+		return ERR_CAST(report);
+
 	ret = tdx_tdi_read_state(tdevsec, &state);
 	if (ret)
 		return ERR_PTR(ret);
 
 	if (state != TDI_STATE_CONFIG_LOCKED)
 		return ERR_PTR(-EIO);
+
+	evidence = device_evidence_create(0, HASH_ALGO_SHA384);
+
+	if (!evidence)
+		return ERR_PTR(-ENOMEM);
+
+	tsm_report = &evidence->obj[DEVICE_EVIDENCE_TYPE_REPORT];
+	tsm_report->data = no_free_ptr(report);
+	tsm_report->len = report_sz;
+
+	tdevsec->pci.base_tsm.evidence = evidence;
 
 	retain_and_null_ptr(tdevsec_bind);
 
@@ -252,10 +294,13 @@ static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *
 static void tdx_devsec_unlock(struct pci_tsm *tsm)
 {
 	struct tdx_devsec *tdevsec = to_tdx_devsec(tsm);
+	struct device_evidence *evidence = tsm->evidence;
 
 	if (WARN_ON(tdx_tdi_unbind_dev(tdevsec)))
 		return;
 
+	kfree(evidence->obj[DEVICE_EVIDENCE_TYPE_REPORT].data);
+	kfree(evidence);
 	kfree(tdevsec);
 }
 
