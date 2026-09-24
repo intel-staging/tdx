@@ -130,6 +130,8 @@ DEFINE_FREE(tdx_tdcm_free, struct tdcm_ctx *,
 
 struct tdx_devsec {
 	struct pci_tsm_devsec pci;
+
+	u64 bind_session_id;
 };
 
 static struct tdx_devsec *to_tdx_devsec(struct pci_tsm *tsm)
@@ -202,6 +204,7 @@ enum tdi_state {
 
 enum tdi_field_code {
 	TDI_GET_TDISP_STATE		= 2,
+	TDI_GET_BIND_SESSION_ID		= 5,
 };
 
 static int tdx_tdi_read_state(struct tdx_devsec *tdevsec, u8 *state)
@@ -302,10 +305,27 @@ static int tdx_tdi_mmio_accept(struct tdx_devsec *tdevsec)
 	return 0;
 }
 
+static int tdx_tdi_start_dev(struct tdx_devsec *tdevsec)
+{
+	struct pci_dev *pdev = tdevsec->pci.base_tsm.pdev;
+	int ret;
+
+	ret = tdx_mcall_tdi_start(pci_dev_id(pdev), tdevsec->bind_session_id);
+	if (ret)
+		return ret;
+
+	struct tdcm_ctx *tdcm __free(tdx_tdcm_free) = tdx_tdcm_alloc(pdev, TDCM_OP_START_TDI, 0, 0);
+	if (IS_ERR(tdcm))
+		return PTR_ERR(tdcm);
+
+	return tdx_tdcm_run(tdcm);
+}
+
 static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *pdev)
 {
 	struct device_evidence_object *tsm_report;
 	struct device_evidence *evidence;
+	u64 session_id;
 	u32 report_sz;
 	u8 state;
 	int ret;
@@ -324,6 +344,12 @@ static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *
 	struct tdx_devsec *tdevsec_bind __free(tdx_tdi_unbind_dev) = tdx_tdi_bind_dev(tdevsec);
 	if (IS_ERR(tdevsec_bind))
 		return ERR_CAST(tdevsec_bind);
+
+	ret = tdx_mcall_tdi_read(pci_dev_id(pdev), TDI_GET_BIND_SESSION_ID, &session_id);
+	if (ret)
+		return ERR_PTR(ret);
+
+	tdevsec->bind_session_id = session_id;
 
 	u8 *report __free(kfree) = tdx_tdi_get_report(tdevsec, &report_sz);
 	if (IS_ERR(report))
@@ -362,6 +388,7 @@ static void tdx_devsec_unlock(struct pci_tsm *tsm)
 
 	tdx_tdi_mmio_teardown(tdevsec);
 
+	dma_set_cc_private(&tsm->pdev->dev, false);
 	kfree(evidence->obj[DEVICE_EVIDENCE_TYPE_REPORT].data);
 	kfree(evidence);
 	kfree(tdevsec);
@@ -370,6 +397,7 @@ static void tdx_devsec_unlock(struct pci_tsm *tsm)
 static int tdx_devsec_run(struct pci_dev *pdev)
 {
 	struct tdx_devsec *tdevsec = to_tdx_devsec(pdev->tsm);
+	u8 state;
 	int ret;
 
 	struct tdx_devsec *tdevsec_mmio __free(tdx_tdi_mmio_teardown) =
@@ -381,7 +409,22 @@ static int tdx_devsec_run(struct pci_dev *pdev)
 	if (ret)
 		return ret;
 
-	return -EOPNOTSUPP;
+	ret = tdx_tdi_start_dev(tdevsec);
+	if (ret)
+		return ret;
+
+	ret = tdx_tdi_read_state(tdevsec, &state);
+	if (ret)
+		return ret;
+
+	if (state != TDI_STATE_RUN) {
+		pci_err(pdev, "TDI failed to reach RUN state, current state: 0x%x\n", state);
+		return -EIO;
+	}
+
+	dma_set_cc_private(&pdev->dev, true);
+	retain_and_null_ptr(tdevsec_mmio);
+	return 0;
 }
 
 static struct pci_tsm_ops tdx_devsec_ops = {
