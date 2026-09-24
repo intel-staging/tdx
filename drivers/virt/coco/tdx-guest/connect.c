@@ -159,8 +159,67 @@ static bool tdx_is_dev_teeio_support(struct tdx_devsec *tdevsec)
 	return !!rsp->is_supported;
 }
 
+static struct tdx_devsec *tdx_tdi_bind_dev(struct tdx_devsec *tdevsec)
+{
+	struct pci_dev *pdev = tdevsec->pci.base_tsm.pdev;
+	int ret;
+
+	struct tdcm_ctx *tdcm __free(tdx_tdcm_free) = tdx_tdcm_alloc(pdev, TDCM_OP_BIND, 0, 0);
+	if (IS_ERR(tdcm))
+		return ERR_CAST(tdcm);
+
+	ret = tdx_tdcm_run(tdcm);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return tdevsec;
+}
+
+static int tdx_tdi_unbind_dev(struct tdx_devsec *tdevsec)
+{
+	struct pci_dev *pdev = tdevsec->pci.base_tsm.pdev;
+
+	struct tdcm_ctx *tdcm __free(tdx_tdcm_free) = tdx_tdcm_alloc(pdev, TDCM_OP_UNBIND, 0, 0);
+	if (IS_ERR(tdcm))
+		return PTR_ERR(tdcm);
+
+	return tdx_tdcm_run(tdcm);
+}
+
+DEFINE_FREE(tdx_tdi_unbind_dev, struct tdx_devsec *,
+	if (!IS_ERR_OR_NULL(_T)) tdx_tdi_unbind_dev(_T))
+
+/*
+ * TDI State value returned by TDG.TDI.RD.
+ * Refer to section "TDG.TDI.RD leaf" in the TDX Connect ABI Specification.
+ */
+enum tdi_state {
+	TDI_STATE_CONFIG_UNLOCKED	= 0x0,
+	TDI_STATE_CONFIG_LOCKED		= 0x1,
+	TDI_STATE_RUN			= 0x2,
+	TDI_STATE_ERROR			= 0x3,
+};
+
+enum tdi_field_code {
+	TDI_GET_TDISP_STATE		= 2,
+};
+
+static int tdx_tdi_read_state(struct tdx_devsec *tdevsec, u8 *state)
+{
+	struct pci_dev *pdev = tdevsec->pci.base_tsm.pdev;
+	u64 value;
+	int ret;
+
+	ret = tdx_mcall_tdi_read(pci_dev_id(pdev), TDI_GET_TDISP_STATE, &value);
+	if (!ret)
+		*state = value;
+
+	return ret;
+}
+
 static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *pdev)
 {
+	u8 state;
 	int ret;
 
 	struct tdx_devsec *tdevsec __free(kfree) = kzalloc(sizeof(*tdevsec), GFP_KERNEL);
@@ -174,12 +233,28 @@ static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *
 	if (!tdx_is_dev_teeio_support(tdevsec))
 		return ERR_PTR(-EOPNOTSUPP);
 
+	struct tdx_devsec *tdevsec_bind __free(tdx_tdi_unbind_dev) = tdx_tdi_bind_dev(tdevsec);
+	if (IS_ERR(tdevsec_bind))
+		return ERR_CAST(tdevsec_bind);
+
+	ret = tdx_tdi_read_state(tdevsec, &state);
+	if (ret)
+		return ERR_PTR(ret);
+
+	if (state != TDI_STATE_CONFIG_LOCKED)
+		return ERR_PTR(-EIO);
+
+	retain_and_null_ptr(tdevsec_bind);
+
 	return &no_free_ptr(tdevsec)->pci.base_tsm;
 }
 
 static void tdx_devsec_unlock(struct pci_tsm *tsm)
 {
 	struct tdx_devsec *tdevsec = to_tdx_devsec(tsm);
+
+	if (WARN_ON(tdx_tdi_unbind_dev(tdevsec)))
+		return;
 
 	kfree(tdevsec);
 }
