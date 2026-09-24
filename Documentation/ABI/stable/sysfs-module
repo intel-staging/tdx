@@ -45,3 +45,13 @@ Date:		Jun 2005
 Description:
 		If the module source has MODULE_VERSION, this file will contain
 		the version of the source code.
+
+What:		/sys/module/module/parameters/async_probe
+Description:
+		(RW) Emits "1" if drivers from loadable modules attempt async
+		probing by default. Emits "0" if drivers from loadable modules
+		attempt synchronous probing by default. This value is overridden
+		(in priority order) by: the module's built-in "PROBE_FORCE_*"
+		requests, the "driver_async_probe=..." kernel command line, the
+		"async_probe" module option, then this default. Write a valid
+		boolean value to toggle this policy.
