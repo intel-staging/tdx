@@ -27800,6 +27800,7 @@ F:	include/linux/device/evidence.h
 F:	include/linux/*tsm*.h
 F:	samples/devsec/
 F:	samples/tsm-mr/
+F:	tools/testing/devsec/
 
 TRUSTED SERVICES TEE DRIVER
 M:	Balint Dobszay <balint.dobszay@arm.com>
