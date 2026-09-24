@@ -27798,6 +27798,7 @@ F:	drivers/virt/coco/guest/
 F:	include/uapi/linux/device-evidence.h
 F:	include/linux/device/evidence.h
 F:	include/linux/*tsm*.h
+F:	samples/devsec/
 F:	samples/tsm-mr/
 
 TRUSTED SERVICES TEE DRIVER
