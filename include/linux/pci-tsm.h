@@ -296,7 +296,20 @@ struct pci_tsm_devsec *to_pci_tsm_devsec(struct pci_tsm *tsm);
 int pci_tsm_mmio_setup(struct pci_dev *pdev, struct pci_tsm_mmio *mmio);
 void pci_tsm_mmio_teardown(struct pci_tsm_mmio *mmio);
 
-struct pci_tsm_mmio *pci_tsm_mmio_alloc(struct pci_dev *pdev);
+/**
+ * enum tdisp_offset_scheme - MMIO_REPORTING_OFFSET assumptions
+ * @TDISP_OFFSET_BAR_ALIGN: mask by bar size to recover offset
+ * @TDISP_OFFSET_RELATIVE: first mmio report per bar is bar-offset-0
+ *
+ * A TSM driver may know that the default TDISP_OFFSET_BAR_ALIGN
+ * assumption is being violated.
+ */
+enum tdisp_offset_scheme {
+	TDISP_OFFSET_BAR_ALIGN,
+	TDISP_OFFSET_RELATIVE,
+};
+struct pci_tsm_mmio *pci_tsm_mmio_alloc(struct pci_dev *pdev,
+					enum tdisp_offset_scheme scheme);
 int pci_tsm_mmio_free(struct pci_dev *pdev, struct pci_tsm_mmio *mmio);
 #else
 static inline int pci_tsm_register(struct tsm_dev *tsm_dev)

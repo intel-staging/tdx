@@ -643,13 +643,15 @@ struct pci_tsm_devif_report {
 /**
  * pci_tsm_mmio_alloc() - allocate encrypted MMIO range descriptor
  * @pdev: device owner of MMIO ranges
+ * @scheme: allow the low level TSM driver to hint the offset calc scheme
  *
  * Return: the encrypted MMIO range descriptor on success, NULL on failure
  *
  * Assumes that this is called within the live lifetime of a PCI device's
  * association with a low level TSM.
  */
-struct pci_tsm_mmio *pci_tsm_mmio_alloc(struct pci_dev *pdev)
+struct pci_tsm_mmio *pci_tsm_mmio_alloc(struct pci_dev *pdev,
+					enum tdisp_offset_scheme scheme)
 {
 	struct device_evidence *evidence = pdev->tsm->evidence;
 	u64 reporting_bar_base, last_reporting_end;
@@ -712,10 +714,14 @@ struct pci_tsm_mmio *pci_tsm_mmio_alloc(struct pci_dev *pdev)
 			last_bar = bar;
 
 			/*
-			 * Determine the obfuscated base of the BAR. BAR
-			 * offsets are never obfuscated.
+			 * Either the first range per bar always maps
+			 * the start of the BAR, or the reporting_offset
+			 * is BAR size aligned.
 			 */
-			reporting_bar_base = tsm_offset & ~mask;
+			if (scheme == TDISP_OFFSET_RELATIVE)
+				reporting_bar_base = tsm_offset;
+			else
+				reporting_bar_base = tsm_offset & ~mask;
 		} else if (tsm_offset < last_reporting_end) {
 			pci_dbg(pdev, "Reporting ranges within BAR not in ascending order\n");
 			return NULL;
