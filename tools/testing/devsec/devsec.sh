@@ -14,6 +14,7 @@ err() {
         exit 1
 }
 
+DEVSEC_DIR=$(dirname "$0")
 ORDER=""
 
 setup_modules() {
@@ -133,6 +134,35 @@ ide_multi_test() {
 	done
 }
 
+CERT_SIZE=$((16<<20))
+MEASUREMENT_SIZE=$((4<<10))
+
+declare -A evidence=(
+	["cert0"]=$CERT_SIZE
+	["cert1"]=0
+	["cert2"]=0
+	["cert3"]=0
+	["cert4"]=0
+	["cert5"]=0
+	["cert6"]=0
+	["cert7"]=0
+	["vca"]=0
+	["measurements"]=$MEASUREMENT_SIZE
+	["report"]=0
+)
+
+check_evidence() {
+	pdev=$(basename $1)
+	dump="$DEVSEC_DIR/device-evidence dump"
+
+	for blob in "${!evidence[@]}"
+	do
+		expect=${evidence[$blob]}
+		size=$($dump -d $pdev -t $blob -o /dev/null 2>&1 | jq -r '.received')
+		[[ $size == $expect ]] || err $LINENO
+	done
+}
+
 ide_test() {
 	pci_dev=${PCI_DEVS[$1]}
 	fn_dev=${FN_DEVS[$1]}
@@ -161,6 +191,8 @@ ide_test() {
 	[[ $dsm == $(basename "$pci_dev") ]] || err "$LINENO"
 	dsm=$(cat "$fn_dev"/tsm/dsm)
 	[[ $dsm == $(basename "$pci_dev") ]] || err "$LINENO"
+
+	check_evidence $pci_dev
 
 	# bind both functions and validate that they display bound to
 	# the TSM device
@@ -220,6 +252,10 @@ devsec_test() {
 	done
 	[[ -n $tsm_devsec ]] || err "$LINENO"
 	[[ -n $tsm_link ]] || err "$LINENO"
+
+	# initialize evidence payloads
+	dd if=/dev/zero of=/sys/bus/faux/devices/devsec_link_tsm/certs bs=$CERT_SIZE count=1
+	dd if=/dev/zero of=/sys/bus/faux/devices/devsec_link_tsm/transcript bs=$MEASUREMENT_SIZE count=1
 
 	# check that devsec bus loads correctly and the TSM is detected
 	for i in ${!PCI_DEVS[@]}; do
