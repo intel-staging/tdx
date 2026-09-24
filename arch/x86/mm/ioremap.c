@@ -36,6 +36,7 @@
  */
 struct ioremap_desc {
 	unsigned int flags;
+	u64 encrypt_size;
 };
 
 /*
@@ -88,23 +89,35 @@ static unsigned int __ioremap_check_ram(struct resource *res)
 }
 
 /*
- * In a SEV guest, NONE and RESERVED should not be mapped encrypted because
- * there the whole memory is already encrypted.
+ * In a encrypted guest, NONE and RESERVED should not be mapped encrypted
+ * because there the whole memory is already encrypted.
+ *
+ * For the encrypted case the entire range must agree with being mapped
+ * encrypted.
  */
-static unsigned int __ioremap_check_encrypted(struct resource *res)
+static unsigned int __ioremap_check_encrypted(struct ioremap_desc *desc,
+					      struct resource *res)
 {
+	u32 flags = 0;
+
+	if (res->desc == IORES_DESC_ENCRYPTED)
+		flags |= IORES_MUST_ENCRYPT;
+
 	if (!cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
-		return 0;
+		return flags;
 
 	switch (res->desc) {
 	case IORES_DESC_NONE:
 	case IORES_DESC_RESERVED:
 		break;
+	case IORES_DESC_ENCRYPTED:
+		desc->encrypt_size += resource_size(res);
+		fallthrough;
 	default:
-		return IORES_MAP_ENCRYPTED;
+		flags |= IORES_MAP_ENCRYPTED;
 	}
 
-	return 0;
+	return flags;
 }
 
 /*
@@ -134,14 +147,10 @@ static int __ioremap_collect_map_flags(struct resource *res, void *arg)
 {
 	struct ioremap_desc *desc = arg;
 
-	if (!(desc->flags & IORES_MAP_SYSTEM_RAM))
-		desc->flags |= __ioremap_check_ram(res);
+	desc->flags |= __ioremap_check_ram(res);
+	desc->flags |= __ioremap_check_encrypted(desc, res);
 
-	if (!(desc->flags & IORES_MAP_ENCRYPTED))
-		desc->flags |= __ioremap_check_encrypted(res);
-
-	return ((desc->flags & (IORES_MAP_SYSTEM_RAM | IORES_MAP_ENCRYPTED)) ==
-			       (IORES_MAP_SYSTEM_RAM | IORES_MAP_ENCRYPTED));
+	return 0;
 }
 
 /*
@@ -162,6 +171,13 @@ static void __ioremap_check_mem(resource_size_t addr, unsigned long size,
 	memset(desc, 0, sizeof(struct ioremap_desc));
 
 	walk_mem_res(start, end, desc, __ioremap_collect_map_flags);
+	/*
+	 * Encrypted MMIO may parent a driver's requested region, so it needs a
+	 * separate search
+	 */
+	desc->encrypt_size = 0;
+	walk_iomem_res_desc(IORES_DESC_ENCRYPTED, IORESOURCE_MEM, start, end,
+			    desc, __ioremap_collect_map_flags);
 
 	__ioremap_check_other(addr, desc);
 }
@@ -208,6 +224,13 @@ __ioremap_caller(resource_size_t phys_addr, unsigned long size,
 	}
 
 	__ioremap_check_mem(phys_addr, size, &io_desc);
+
+	if ((io_desc.flags & IORES_MUST_ENCRYPT) &&
+	    io_desc.encrypt_size < size) {
+		pr_err("ioremap: encrypted mapping unavailable for %pa - %pa\n",
+		       &phys_addr, &last_addr);
+		return NULL;
+	}
 
 	/*
 	 * Don't allow anybody to remap normal RAM that we're using..
