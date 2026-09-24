@@ -3,7 +3,10 @@
 #define __PCI_TSM_H
 #include <linux/mutex.h>
 #include <linux/pci.h>
+#include <linux/rwsem.h>
 #include <linux/sockptr.h>
+#include <linux/tsm.h>
+#include <linux/device/evidence.h>
 
 struct pci_tsm;
 struct tsm_dev;
@@ -18,6 +21,7 @@ enum pci_tsm_req_scope;
  * @devsec_ops: Lock, unlock, and interrogate the security state of the
  *		function via the platform TSM (typically virtual function
  *		operations).
+ * @refresh_evidence: Common operation to regenerate attestation objects
  *
  * This operations are mutually exclusive either a tsm_dev instance
  * manages physical link properties or it manages function security
@@ -75,6 +79,9 @@ struct pci_tsm_ops {
 					struct pci_dev *pdev);
 		void (*unlock)(struct pci_tsm *tsm);
 	);
+
+	int (*refresh_evidence)(struct pci_tsm *tsm, const void *nonce,
+				size_t nonce_len);
 };
 
 /**
@@ -96,6 +103,8 @@ struct pci_tdi {
  * @tsm_dev: PCI TEE Security Manager device for Link Confidentiality or Device
  *	     Function Security operations
  * @tdi: TDI context established by the @bind link operation
+ * @evidence: cached evidence from SPDM session establishment (connect), or
+ *	      TDISP bind (lock)
  *
  * This structure is wrapped by low level TSM driver data and returned by
  * probe()/lock(), it is freed by the corresponding remove()/unlock().
@@ -112,6 +121,7 @@ struct pci_tsm {
 	struct pci_dev *dsm_dev;
 	struct tsm_dev *tsm_dev;
 	struct pci_tdi *tdi;
+	struct device_evidence *evidence;
 };
 
 /**
@@ -216,6 +226,10 @@ void pci_tsm_tdi_constructor(struct pci_dev *pdev, struct pci_tdi *tdi,
 ssize_t pci_tsm_guest_req(struct pci_dev *pdev, enum pci_tsm_req_scope scope,
 			  sockptr_t req_in, size_t in_len, sockptr_t req_out,
 			  size_t out_len, u64 *tsm_code);
+static inline const struct pci_tsm_ops *to_pci_tsm_ops(struct pci_tsm *tsm)
+{
+	return tsm->tsm_dev->pci_ops;
+}
 #else
 static inline int pci_tsm_register(struct tsm_dev *tsm_dev)
 {

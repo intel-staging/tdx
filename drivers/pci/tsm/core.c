@@ -15,13 +15,13 @@
 #include <linux/sysfs.h>
 #include <linux/tsm.h>
 #include <linux/xarray.h>
-#include "pci.h"
+#include "../pci.h"
 
 /*
  * Provide a read/write lock against the init / exit of pdev tsm
  * capabilities and arrival/departure of a TSM instance
  */
-static DECLARE_RWSEM(pci_tsm_rwsem);
+DECLARE_RWSEM(pci_tsm_rwsem);
 
 /*
  * Count of TSMs registered that support physical link operations vs device
@@ -29,11 +29,6 @@ static DECLARE_RWSEM(pci_tsm_rwsem);
  */
 static int pci_tsm_link_count;
 static int pci_tsm_devsec_count;
-
-static const struct pci_tsm_ops *to_pci_tsm_ops(struct pci_tsm *tsm)
-{
-	return tsm->tsm_dev->pci_ops;
-}
 
 static inline bool is_dsm(struct pci_dev *pdev)
 {

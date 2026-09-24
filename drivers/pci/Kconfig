@@ -126,6 +126,7 @@ config PCI_IDE
 
 config PCI_TSM
 	bool "PCI TSM: Device security protocol support"
+	select DEVICE_EVIDENCE if NET
 	select PCI_IDE
 	select PCI_DOE
 	select TSM
