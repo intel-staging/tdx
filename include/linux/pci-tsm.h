@@ -157,11 +157,41 @@ struct pci_tsm_pf0 {
 };
 
 /**
+ * struct pci_tsm_mmio_entry - an encrypted MMIO range
+ * @res: MMIO address range (typically Guest Physical Address, GPA)
+ * @tsm_offset: Host Physical Address, HPA obfuscation offset added by the TSM.
+ *		Translates report addresses to GPA.
+ */
+struct pci_tsm_mmio_entry {
+	struct resource res;
+	u64 tsm_offset;
+};
+
+struct pci_tsm_mmio {
+	int nr;
+	struct pci_tsm_mmio_entry mmio[];
+};
+
+static inline struct pci_tsm_mmio_entry *
+pci_tsm_mmio_entry(struct pci_tsm_mmio *mmio, int idx)
+{
+	return &mmio->mmio[idx];
+}
+
+static inline struct resource *pci_tsm_mmio_resource(struct pci_tsm_mmio *mmio,
+						     int idx)
+{
+	return &mmio->mmio[idx].res;
+}
+
+/**
  * struct pci_tsm_devsec - context for tracking private/accepted PCI resources
  * @base_tsm: generic core "tsm" context
+ * @mmio: encrypted MMIO resources for this assigned device
  */
 struct pci_tsm_devsec {
 	struct pci_tsm base_tsm;
+	struct pci_tsm_mmio *mmio;
 };
 
 /* physical function0 and capable of 'connect' */
@@ -263,6 +293,11 @@ static inline const struct pci_tsm_ops *to_pci_tsm_ops(struct pci_tsm *tsm)
 	return tsm->tsm_dev->pci_ops;
 }
 struct pci_tsm_devsec *to_pci_tsm_devsec(struct pci_tsm *tsm);
+int pci_tsm_mmio_setup(struct pci_dev *pdev, struct pci_tsm_mmio *mmio);
+void pci_tsm_mmio_teardown(struct pci_tsm_mmio *mmio);
+
+struct pci_tsm_mmio *pci_tsm_mmio_alloc(struct pci_dev *pdev);
+int pci_tsm_mmio_free(struct pci_dev *pdev, struct pci_tsm_mmio *mmio);
 #else
 static inline int pci_tsm_register(struct tsm_dev *tsm_dev)
 {

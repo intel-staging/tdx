@@ -56,6 +56,14 @@ struct resource soft_reserve_resource = {
 	.flags	= IORESOURCE_MEM,
 };
 
+struct resource encrypted_iomem_resource = {
+	.name	= "Encrypted MMIO",
+	.start	= 0,
+	.end	= -1,
+	.desc	= IORES_DESC_ENCRYPTED,
+	.flags	= IORESOURCE_MEM,
+};
+
 static DEFINE_RWLOCK(resource_lock);
 
 /*

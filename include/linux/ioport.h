@@ -144,6 +144,7 @@ enum {
 	IORES_DESC_RESERVED			= 7,
 	IORES_DESC_SOFT_RESERVED		= 8,
 	IORES_DESC_CXL				= 9,
+	IORES_DESC_ENCRYPTED			= 10,
 };
 
 /*
@@ -240,6 +241,7 @@ struct resource_constraint {
 extern struct resource ioport_resource;
 extern struct resource iomem_resource;
 extern struct resource soft_reserve_resource;
+extern struct resource encrypted_iomem_resource;
 
 extern struct resource *request_resource_conflict(struct resource *root, struct resource *new);
 extern int request_resource(struct resource *root, struct resource *new);
