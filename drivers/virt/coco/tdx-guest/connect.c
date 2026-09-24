@@ -7,12 +7,126 @@
 
 #define pr_fmt(fmt)		KBUILD_MODNAME ": tdx_connect: " fmt
 
+#include <linux/iopoll.h>
 #include <linux/pci.h>
 #include <linux/pci-tsm.h>
+#include <linux/set_memory.h>
 #include <linux/tsm.h>
 #include <asm/tdx.h>
 
 #include "tdx-guest.h"
+
+/**
+ * struct tdcm_ctx - TEE-IO Device Configuration and Management (TDCM) context
+ * @buf: Pointer to 4KB-aligned shared memory (>= one page) used as the command
+ *       buffer on input and the response buffer on output.
+ * @buf_size: Total size of the shared memory buffer.
+ * @max_rsp_data_sz: Maximum expected size of the response data.
+ * @rsp_data_sz: Actual size of the response data populated by the VMM.
+ * @devid: Device Identifier.
+ */
+struct tdcm_ctx {
+	struct tdvmcall_tdcm *buf;
+	size_t buf_size;
+	u32 max_rsp_data_sz;
+	u32 rsp_data_sz;
+	u16 devid;
+};
+
+#define to_tdcm_rsp_data(tdcm)	((tdcm)->buf->data)
+
+#define TDCM_POLL_DELAY_US	10000
+#define TDCM_POLL_TIMEOUT_US	(10 * USEC_PER_SEC)
+
+static int tdx_tdcm_run(struct tdcm_ctx *tdcm)
+{
+	struct tdvmcall_tdcm *buf = tdcm->buf;
+	u8 status;
+	int ret;
+	u64 r;
+
+	r = tdx_hcall_tdcm(tdcm->devid, buf, tdcm->buf_size, 0);
+	if (r)
+		return -EFAULT;
+
+	ret = read_poll_timeout(READ_ONCE, status, status != TDCM_STATUS_WAIT,
+				TDCM_POLL_DELAY_US, TDCM_POLL_TIMEOUT_US, false, buf->status);
+	if (ret) {
+		pr_err("TDCM request %d timed out\n", buf->operation);
+		return ret;
+	}
+
+	/* Ensure subsequent data reads are ordered after the status observation */
+	virt_rmb();
+
+	/*
+	 * Cache VMM response data length to avoid referencing buf->data_length
+	 * directly in case a malicious VMM changes buf->data_length between the
+	 * validation below and the subsequent reads.
+	 */
+	tdcm->rsp_data_sz = READ_ONCE(buf->data_length);
+
+	if (status != TDCM_STATUS_COMPLETED || tdcm->rsp_data_sz > tdcm->max_rsp_data_sz ||
+	    (tdcm->max_rsp_data_sz && !tdcm->rsp_data_sz)) {
+		pr_err("TDCM request %d failed: status 0x%x, error 0x%x, max_rsp_data_sz 0x%x, returned 0x%x\n",
+		       buf->operation, status, buf->error, tdcm->max_rsp_data_sz,
+		       tdcm->rsp_data_sz);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static struct tdcm_ctx *tdx_tdcm_alloc(struct pci_dev *pdev, u8 operation,
+				       size_t cmd_data_sz, size_t rsp_data_sz)
+{
+	struct tdvmcall_tdcm *buf;
+	size_t buf_size;
+	int ret;
+
+	buf_size = max(cmd_data_sz, rsp_data_sz);
+	buf_size = struct_size_t(struct tdvmcall_tdcm, data, buf_size);
+	buf_size = PAGE_ALIGN(buf_size);
+
+	struct tdcm_ctx *tdcm __free(kfree) = kzalloc(sizeof(*tdcm), GFP_KERNEL);
+	if (!tdcm)
+		return ERR_PTR(-ENOMEM);
+
+	buf = alloc_pages_exact(buf_size, GFP_KERNEL);
+	if (!buf)
+		return ERR_PTR(-ENOMEM);
+
+	ret = set_memory_decrypted((unsigned long)buf, PHYS_PFN(buf_size));
+	if (ret) {
+		free_pages_exact(buf, buf_size);
+		return ERR_PTR(ret);
+	}
+
+	memset(buf, 0, buf_size);
+	buf->operation = operation;
+	buf->status = TDCM_STATUS_WAIT;
+	buf->data_length = cmd_data_sz;
+
+	tdcm->buf = buf;
+	tdcm->buf_size = buf_size;
+	tdcm->max_rsp_data_sz = rsp_data_sz;
+	tdcm->devid = pci_dev_id(pdev);
+
+	return_ptr(tdcm);
+}
+
+static void tdx_tdcm_free(struct tdcm_ctx *tdcm)
+{
+	if (set_memory_encrypted((unsigned long)tdcm->buf, PHYS_PFN(tdcm->buf_size)))
+		pr_err("Failed to encrypt TDCM buf, leak it\n");
+	else
+		free_pages_exact(tdcm->buf, tdcm->buf_size);
+
+	kfree(tdcm);
+}
+
+DEFINE_FREE(tdx_tdcm_free, struct tdcm_ctx *,
+	if (!IS_ERR_OR_NULL(_T)) tdx_tdcm_free(_T))
 
 struct tdx_devsec {
 	struct pci_tsm_devsec pci;
@@ -21,6 +135,28 @@ struct tdx_devsec {
 static struct tdx_devsec *to_tdx_devsec(struct pci_tsm *tsm)
 {
 	return container_of(tsm, struct tdx_devsec, pci.base_tsm);
+}
+
+static bool tdx_is_dev_teeio_support(struct tdx_devsec *tdevsec)
+{
+	struct pci_dev *pdev = tdevsec->pci.base_tsm.pdev;
+	struct tdcm_rsp_check_teeio_supp *rsp;
+	int ret;
+
+	struct tdcm_ctx *tdcm __free(tdx_tdcm_free) =
+		tdx_tdcm_alloc(pdev, TDCM_OP_CHECK_TEEIO_SUPP, 0, sizeof(*rsp));
+	if (IS_ERR(tdcm))
+		return false;
+
+	ret = tdx_tdcm_run(tdcm);
+	if (ret)
+		return false;
+
+	if (tdcm->rsp_data_sz != sizeof(*rsp))
+		return false;
+
+	rsp = (struct tdcm_rsp_check_teeio_supp *)to_tdcm_rsp_data(tdcm);
+	return !!rsp->is_supported;
 }
 
 static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *pdev)
@@ -34,6 +170,9 @@ static struct pci_tsm *tdx_devsec_lock(struct tsm_dev *tsm_dev, struct pci_dev *
 	ret = pci_tsm_devsec_constructor(pdev, &tdevsec->pci, tsm_dev);
 	if (ret)
 		return ERR_PTR(ret);
+
+	if (!tdx_is_dev_teeio_support(tdevsec))
+		return ERR_PTR(-EOPNOTSUPP);
 
 	return &no_free_ptr(tdevsec)->pci.base_tsm;
 }

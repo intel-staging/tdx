@@ -105,6 +105,54 @@ int tdx_mcall_extend_rtmr(u8 index, u8 *data);
 u64 tdx_hcall_get_quote(u8 *buf, size_t size);
 
 #ifdef CONFIG_TDX_CONNECT_GUEST
+enum tdcm_operation {
+	TDCM_OP_CHECK_TEEIO_SUPP	= 1,
+	TDCM_OP_BIND			= 2,
+	TDCM_OP_GET_DEV_INFO		= 3,
+	TDCM_OP_GET_TDI_REPORT		= 4,
+	TDCM_OP_START_TDI		= 5,
+	TDCM_OP_GET_TDI_STATE		= 6,
+	TDCM_OP_UNBIND			= 7,
+};
+
+enum tdcm_status {
+	TDCM_STATUS_WAIT		= 0,
+	TDCM_STATUS_COMPLETED		= 1,
+	TDCM_STATUS_ERROR		= 2,
+};
+
+enum tdcm_error {
+	TDCM_ERROR_TDX_MODULE		= 10,
+	TDCM_ERROR_TDXIO_DEVICE		= 11,
+	TDCM_ERROR_SPDM_MESSAGE		= 12,
+	TDCM_ERROR_IDE_KM_MESSAGE	= 13,
+	TDCM_ERROR_TDISP_MESSAGE	= 14,
+	TDCM_ERROR_INVALID_STATE	= 15,
+};
+
+struct tdvmcall_tdcm {
+	__u16 operation;  /* See enum tdcm_operation */
+	__u8  version;
+	__u8  rsvd0;
+	__u32 rsvd1;
+
+	__u8  status;     /* See enum tdcm_status */
+	__u8  error;      /* See enum tdcm_error */
+	__u16 rsvd2;
+	__u32 rsvd3;
+
+	__u32 data_length;
+
+	__u8  data[];
+} __packed;
+
+struct tdcm_rsp_check_teeio_supp {
+	__u8 is_supported;
+	__u8  data[];
+} __packed;
+
+#define MAX_TDI_REPORT_SIZE	(16 * PAGE_SIZE)
+
 u64 tdx_hcall_tdcm(u16 devid, void *buf, size_t size, u8 vector);
 int tdx_mcall_tdi_read(u64 func_id, u64 field, u64 *value);
 #endif
