@@ -70,15 +70,18 @@ struct pci_tsm_ops {
 	 *	  pci_tsm') for follow-on security state transitions from the
 	 *	  LOCKED state
 	 * @unlock: destroy TSM context and return device to UNLOCKED state
+	 * @run: Move a device to the RUN state / prepare to enable DMA
 	 *
 	 * Context: @lock and @unlock run under pci_tsm_rwsem held for write to
-	 * sync with TSM unregistration and each other. All operations run under
-	 * the device lock for mutual exclusion with driver attach and detach.
+	 * sync with TSM unregistration and each other. @run runs under
+	 * pci_tsm_rwsem held for read. All operations run under the device lock
+	 * for mutual exclusion with driver attach and detach.
 	 */
 	struct_group_tagged(pci_tsm_devsec_ops, devsec_ops,
 		struct pci_tsm *(*lock)(struct tsm_dev *tsm_dev,
 					struct pci_dev *pdev);
 		void (*unlock)(struct pci_tsm *tsm);
+		int (*run)(struct pci_dev *pdev);
 	);
 
 	int (*refresh_evidence)(struct pci_tsm *tsm, const void *nonce,
@@ -97,6 +100,9 @@ struct pci_tdi {
 	u32 tdi_id;
 };
 
+/* Private operation acknowledged, future ioremap will use private alias */
+#define PCI_TSM_F_ACCEPT (1UL << 0)
+
 /**
  * struct pci_tsm - Core TSM context for a given PCIe endpoint
  * @pdev: Back ref to device function, distinguishes type of pci_tsm context
@@ -104,6 +110,7 @@ struct pci_tdi {
  * @tsm_dev: PCI TEE Security Manager device for Link Confidentiality or Device
  *	     Function Security operations
  * @tdi: TDI context established by the @bind link operation
+ * @flags: Convey TDISP availabilty and / or state
  * @evidence: cached evidence from SPDM session establishment (connect), or
  *	      TDISP bind (lock)
  *
@@ -130,6 +137,7 @@ struct pci_tsm {
 	struct tsm_dev *tsm_dev;
 	struct pci_tdi *tdi;
 	struct device_evidence *evidence;
+	unsigned long flags;
 };
 
 /**

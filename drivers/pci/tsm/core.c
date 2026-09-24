@@ -553,6 +553,89 @@ static ssize_t dsm_show(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR_RO(dsm);
 
 /**
+ * pci_tsm_accept() - accept a device for private MMIO operation
+ * @pdev: PCI device to accept
+ *
+ * "Accept" transitions the device interface to the RUN state, it is
+ * only suitable to make that transition from a known idle (no active
+ * DMA / MMIO mappings) state. The "driver detached" state is a coarse
+ * way to assert that requirement.
+ */
+static int pci_tsm_accept(struct pci_dev *pdev)
+{
+	int rc;
+
+	ACQUIRE(rwsem_read_intr, lock)(&pci_tsm_rwsem);
+	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &lock)))
+		return rc;
+
+	if (!pdev->tsm)
+		return -EINVAL;
+
+	ACQUIRE(device_intr, dev_lock)(&pdev->dev);
+	if ((rc = ACQUIRE_ERR(device_intr, &dev_lock)))
+		return rc;
+
+	if (pdev->dev.driver)
+		return -EBUSY;
+
+	if (test_bit(PCI_TSM_F_ACCEPT, &pdev->tsm->flags))
+		return 0;
+
+	rc = to_pci_tsm_ops(pdev->tsm)->run(pdev);
+	if (rc)
+		return rc;
+
+	set_bit(PCI_TSM_F_ACCEPT, &pdev->tsm->flags);
+
+	return 0;
+}
+
+static ssize_t accept_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t len)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	bool accept;
+	int rc;
+
+	rc = kstrtobool(buf, &accept);
+	if (rc)
+		return rc;
+
+	/*
+	 * TDISP can only go from RUN to UNLOCKED/ERROR, so there is no
+	 * 'unaccept' verb.
+	 */
+	if (!accept)
+		return -EINVAL;
+
+	rc = pci_tsm_accept(pdev);
+	if (rc)
+		return rc;
+
+	return len;
+}
+
+static ssize_t accept_show(struct device *dev, struct device_attribute *attr,
+			   char *buf)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	bool accept = false;
+	int rc;
+
+	ACQUIRE(rwsem_read_intr, lock)(&pci_tsm_rwsem);
+	if ((rc = ACQUIRE_ERR(rwsem_read_intr, &lock)))
+		return rc;
+
+	/* Unlocked == Unaccepted */
+	if (pdev->tsm)
+		accept = test_bit(PCI_TSM_F_ACCEPT, &pdev->tsm->flags);
+
+	return sysfs_emit(buf, "%d\n", accept);
+}
+static DEVICE_ATTR_RW(accept);
+
+/**
  * pci_tsm_unlock() - Transition TDI from LOCKED/RUN to UNLOCKED
  * @pdev: TDI device to unlock
  *
@@ -568,9 +651,9 @@ static void pci_tsm_unlock(struct pci_dev *pdev)
 			  "unlock attempted on driver attached device\n"))
 		return;
 
-	device_cc_reject(&pdev->dev);
 	to_pci_tsm_ops(pdev->tsm)->unlock(pdev->tsm);
 	pdev->tsm = NULL;
+	/* implicit clear of PCI_TSM_F_ACCEPT */
 }
 
 static int pci_tsm_lock(struct pci_dev *pdev, struct tsm_dev *tsm_dev)
@@ -735,7 +818,8 @@ static umode_t pci_tsm_attr_visible(struct kobject *kobj,
 	}
 
 	if (pci_tsm_devsec_group_visible(kobj)) {
-		if (attr == &dev_attr_lock.attr ||
+		if (attr == &dev_attr_accept.attr ||
+		    attr == &dev_attr_lock.attr ||
 		    attr == &dev_attr_unlock.attr)
 			return attr->mode;
 	}
@@ -755,6 +839,7 @@ static struct attribute *pci_tsm_attrs[] = {
 	&dev_attr_disconnect.attr,
 	&dev_attr_bound.attr,
 	&dev_attr_dsm.attr,
+	&dev_attr_accept.attr,
 	&dev_attr_lock.attr,
 	&dev_attr_unlock.attr,
 	NULL
