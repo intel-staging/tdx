@@ -1220,6 +1220,35 @@ static __init int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+int tdx_pamt_get_range(kvm_pfn_t pfn, unsigned long npages)
+{
+	int i, ret;
+
+	for (i = 0; i < npages; i++) {
+		ret = tdx_pamt_get(pfn + i, NULL);
+		if (ret)
+			goto err;
+	}
+
+	return 0;
+
+err:
+	while (i--)
+		tdx_pamt_put(pfn + i);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdx_pamt_get_range);
+
+void tdx_pamt_put_range(kvm_pfn_t pfn, unsigned long npages)
+{
+	int i;
+
+	for (i = 0; i < npages; i++)
+		tdx_pamt_put(pfn + i);
+}
+EXPORT_SYMBOL_GPL(tdx_pamt_put_range);
+
 #define TDX_HPA_LIST_MAX_NR_PAGES	(PAGE_SIZE / sizeof(u64))
 
 /*
@@ -2457,7 +2486,7 @@ out_free:
 
 	return ret;
 }
-EXPORT_SYMBOL_FOR_KVM(tdx_pamt_get);
+EXPORT_SYMBOL_GPL(tdx_pamt_get);
 
 /* Drop DPAMT refcount for the given pfn and free DPAMT backing if needed. */
 void tdx_pamt_put(kvm_pfn_t pfn)
@@ -2501,7 +2530,7 @@ void tdx_pamt_put(kvm_pfn_t pfn)
 out_unlock:
 	spin_unlock(&dpamt_lock);
 }
-EXPORT_SYMBOL_FOR_KVM(tdx_pamt_put);
+EXPORT_SYMBOL_GPL(tdx_pamt_put);
 
 void tdx_free_pamt_cache(struct tdx_pamt_cache *cache)
 {
