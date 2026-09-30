@@ -288,6 +288,8 @@ static int tdx_spdm_create(struct tdx_tsm_link *tlink)
 	if (!spdm_mt)
 		return -ENOMEM;
 
+	WARN_ON(tdx_pamt_get_range(PFN_DOWN(__pa(spdm_mt)), nr_pages));
+
 	ret = tdx_hpa_list_info_setup(&info, spdm_mt, nr_pages);
 	if (ret)
 		goto out_spdm_mt_free;
@@ -322,6 +324,8 @@ static void tdx_spdm_delete(struct tdx_tsm_link *tlink)
 		pci_err(pdev, "fail to delete spdm 0x%llx\n", sret);
 		return;
 	}
+
+	tdx_pamt_put_range(PFN_DOWN(__pa(tlink->spdm_mt)), tlink->spdm_mt_nr_pages);
 
 	free_pages_exact(tlink->spdm_mt, tlink->spdm_mt_nr_pages * PAGE_SIZE);
 	return;
@@ -432,6 +436,8 @@ static int tdx_ide_stream_create(struct tdx_tsm_link *tlink,
 	if (!stream_mt)
 		return -ENOMEM;
 
+	WARN_ON(tdx_pamt_get(page_to_pfn(stream_mt), NULL));
+
 	stream_info = FIELD_PREP(STREAM_INFO_RP_DEVFN, rp->devfn);
 	stream_info |= FIELD_PREP(STREAM_INFO_TYPE, STREAM_INFO_TYPE_SEL);
 
@@ -496,6 +502,8 @@ static void tdx_ide_stream_delete(struct tdx_tsm_link *tlink)
 		pci_err(pdev, "ide stream delete fail 0x%llx\n", sret);
 		return;
 	}
+
+	tdx_pamt_put(page_to_pfn(tlink->stream_mt));
 
 	__free_page(tlink->stream_mt);
 }
