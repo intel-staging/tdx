@@ -25,9 +25,14 @@ static void free_mt_pages(struct tdxc_pages *array)
 	if (!array)
 		return;
 
-	for (int i = 0; i < array->nr_entries; i++)
-		iommu_free_pages(array->pages[i]);
+	for (int i = 0; i < array->nr_entries; i++) {
+		if (i == 0 || i == 1)
+			tdx_pamt_put_range(PFN_DOWN(__pa(array->pages[i])), IQ_BUFFER_PAGES);
+		else
+			tdx_pamt_put(PFN_DOWN(__pa(array->pages[i])));
 
+		iommu_free_pages(array->pages[i]);
+	}
 	iommu_free_pages(array->root);
 	kfree(array->pages);
 	kfree(array);
@@ -50,9 +55,13 @@ static void **alloc_mt_pages(unsigned int nr_entries, int node)
 	if (!pages[0])
 		goto free_pages;
 
+	WARN_ON(tdx_pamt_get_range(PFN_DOWN(__pa(pages[0])), IQ_BUFFER_PAGES));
+
 	pages[1] = iommu_alloc_pages_node_sz(node, GFP_KERNEL, IQ_BUFFER_SIZE);
 	if (!pages[1])
 		goto free_pages;
+
+	WARN_ON(tdx_pamt_get_range(PFN_DOWN(__pa(pages[1])), IQ_BUFFER_PAGES));
 
 	/* Allocate the required number of pages for the IOMMU metadata. */
 	for (i = IQ_BUFFERS_NUM; i < nr_entries; i++) {
@@ -60,6 +69,8 @@ static void **alloc_mt_pages(unsigned int nr_entries, int node)
 		if (!vaddr)
 			goto free_pages;
 		pages[i] = vaddr;
+
+		WARN_ON(tdx_pamt_get(PFN_DOWN(__pa(pages[i])), NULL));
 	}
 
 	return pages;
