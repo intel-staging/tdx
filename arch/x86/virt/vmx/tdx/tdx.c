@@ -1328,8 +1328,15 @@ static __init int tdx_ext_mem_setup(void)
 		struct page *chunk = page + added_pages;
 		unsigned int i;
 
-		for (i = 0; i < chunk_pages; i++)
+		for (i = 0; i < chunk_pages; i++) {
+			ret = tdx_pamt_get(page_to_pfn(chunk + i), NULL);
+			if (ret) {
+				WARN(1, "DPAMT setup error for extensions, stranded all pages\n");
+				goto out_free_hpa_list;
+			}
+
 			hpa_list->phys[i] = page_to_phys(chunk + i);
+		}
 
 		ret = tdx_ext_mem_add(hpa_list, chunk_pages);
 		if (ret) {
